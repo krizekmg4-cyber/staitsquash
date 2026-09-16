@@ -48,7 +48,9 @@ export async function runBundleSmoke({
 
   let startupTimeout;
   let shutdownTimeout;
-  let startupConfirmed = false;
+  let listeningConfirmed = false;
+  let readinessConfirmed = false;
+  let readinessCheckStarted = false;
   let failure;
   let stdoutRemainder = "";
 
@@ -59,6 +61,25 @@ export async function runBundleSmoke({
       () => child.kill("SIGKILL"),
       shutdownTimeoutMs,
     );
+  }
+
+  async function confirmReadiness() {
+    if (readinessCheckStarted) return;
+    readinessCheckStarted = true;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/healthz`);
+      if (!response.ok) {
+        throw new Error(`received HTTP ${response.status}`);
+      }
+      readinessConfirmed = true;
+      clearTimeout(startupTimeout);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      failure = new Error(`API bundle readiness request failed: ${reason}`);
+    }
+
+    stopChild();
   }
 
   function confirmStartupFromStdout(chunk) {
@@ -74,9 +95,8 @@ export async function runBundleSmoke({
           event?.port === port &&
           event?.level === 30
         ) {
-          startupConfirmed = true;
-          clearTimeout(startupTimeout);
-          stopChild();
+          listeningConfirmed = true;
+          void confirmReadiness();
           return;
         }
       } catch {
@@ -87,7 +107,7 @@ export async function runBundleSmoke({
 
   function rememberStdout(chunk) {
     output.push(chunk);
-    if (!startupConfirmed) confirmStartupFromStdout(chunk);
+    if (!listeningConfirmed) confirmStartupFromStdout(chunk);
   }
 
   function rememberStderr(chunk) {
@@ -103,7 +123,7 @@ export async function runBundleSmoke({
       clearTimeout(startupTimeout);
       clearTimeout(shutdownTimeout);
 
-      if (startupConfirmed && !failure) {
+      if (listeningConfirmed && readinessConfirmed && !failure) {
         resolve();
         return;
       }

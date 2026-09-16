@@ -62,8 +62,16 @@ test("passes after startup and removes the child process", async () => {
   const entryPath = await createFixture(
     "starts",
     `
-      import { createServer } from "node:net";
-      const server = createServer();
+      import { createServer } from "node:http";
+      const server = createServer((request, response) => {
+        if (request.url === "/api/healthz") {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ status: "ok" }));
+          return;
+        }
+        response.writeHead(404);
+        response.end();
+      });
       server.listen(Number(process.env.PORT), "127.0.0.1", () => {
          console.log(JSON.stringify({
            level: 30,
@@ -75,6 +83,41 @@ test("passes after startup and removes the child process", async () => {
   );
 
   await runFixture(entryPath);
+  assert.equal(configuredPortServer.listening, true);
+});
+
+test("fails when startup is valid but the readiness request is unsuccessful", async () => {
+  const entryPath = await createFixture(
+    "readiness-fails",
+    `
+      import { createServer } from "node:http";
+      const server = createServer((_request, response) => {
+        response.writeHead(503);
+        response.end("not ready");
+      });
+      server.listen(Number(process.env.PORT), "127.0.0.1", () => {
+        console.log(JSON.stringify({
+          level: 30,
+          port: Number(process.env.PORT),
+          msg: "Server listening"
+        }));
+      });
+    `,
+  );
+  let childPid;
+
+  await assert.rejects(
+    runBundleSmoke({
+      entryPath,
+      startupTimeoutMs: 5_000,
+      shutdownTimeoutMs: 1_000,
+      onSpawn(child) {
+        childPid = child.pid;
+      },
+    }),
+    /readiness request failed: received HTTP 503/,
+  );
+  assertProcessGone(childPid);
   assert.equal(configuredPortServer.listening, true);
 });
 
