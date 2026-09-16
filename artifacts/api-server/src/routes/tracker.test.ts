@@ -318,6 +318,88 @@ test("refresh route delivers queued recoveries once in incident order", async ()
   }
 });
 
+test("overlapping refresh requests deliver a queued recovery exactly once", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = {
+    scheduleUrl: process.env["CLUB_LOCKER_SCHEDULE_URL"],
+    webhookUrl: process.env["STAFF_ALERT_WEBHOOK_URL"],
+  };
+  const state = healthyState();
+  state.refreshHealth.pendingRecoveries = [
+    {
+      failedAttempts: 2,
+      outageStartedAt: "2026-09-16T10:00:00.000Z",
+      recoveredAt: "2026-09-16T10:10:00.000Z",
+      outageDurationMs: 10 * 60_000,
+    },
+  ];
+  const webhookPayloads: Record<string, unknown>[] = [];
+  let releaseWebhook!: () => void;
+  const webhookBlocked = new Promise<void>((resolve) => {
+    releaseWebhook = resolve;
+  });
+  let markWebhookStarted!: () => void;
+  const webhookStarted = new Promise<void>((resolve) => {
+    markWebhookStarted = resolve;
+  });
+
+  process.env["CLUB_LOCKER_SCHEDULE_URL"] = "https://schedule.test/feed";
+  process.env["STAFF_ALERT_WEBHOOK_URL"] = "https://alerts.test/hook";
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://schedule.test/feed") {
+      return Response.json({ matches: [] });
+    }
+    if (url === "https://alerts.test/hook") {
+      webhookPayloads.push(JSON.parse(String(init?.body)));
+      markWebhookStarted();
+      await webhookBlocked;
+      return new Response(null, { status: 204 });
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    await withTrackerServer(state, async (url) => {
+      const firstRefresh = originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      await webhookStarted;
+      const secondRefresh = originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(webhookPayloads.length, 1);
+
+      releaseWebhook();
+      const responses = await Promise.all([firstRefresh, secondRefresh]);
+      assert.deepEqual(responses.map((response) => response.status), [200, 200]);
+      assert.equal(webhookPayloads.length, 1);
+
+      const bodies = await Promise.all(
+        responses.map(async (response) => response.json() as Promise<{
+          refreshHealth: { pendingRecoveryNotices: number };
+        }>),
+      );
+      assert.deepEqual(
+        bodies.map((body) => body.refreshHealth.pendingRecoveryNotices),
+        [0, 0],
+      );
+    });
+  } finally {
+    releaseWebhook();
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries({
+      CLUB_LOCKER_SCHEDULE_URL: originalEnvironment.scheduleUrl,
+      STAFF_ALERT_WEBHOOK_URL: originalEnvironment.webhookUrl,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("normal successful refresh sends no staff webhook", async () => {
   const originalFetch = globalThis.fetch;
   const originalScheduleUrl = process.env["CLUB_LOCKER_SCHEDULE_URL"];

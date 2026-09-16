@@ -270,6 +270,16 @@ export function createTrackerRouter(
 ): IRouter {
   const router: IRouter = Router();
   const { getState: loadState, saveState: persistState } = dependencies;
+  let refreshQueue: Promise<void> = Promise.resolve();
+
+  function serializeRefresh<T>(operation: () => Promise<T>): Promise<T> {
+    const result = refreshQueue.then(operation, operation);
+    refreshQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
 
   router.get("/tracker", async (_req, res): Promise<void> => {
     res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
@@ -335,6 +345,7 @@ export function createTrackerRouter(
   });
 
   router.post("/tracker/refresh", async (req, res): Promise<void> => {
+  await serializeRefresh(async () => {
   const alertThreshold = getAlertThreshold();
   try {
     const previousState = await loadState();
@@ -402,6 +413,7 @@ export function createTrackerRouter(
     const message = error instanceof Error ? error.message : "Unknown Club Locker error";
     res.status(502).json({ error: `Refresh failed: ${message}` });
   }
+  });
   });
 
   return router;
