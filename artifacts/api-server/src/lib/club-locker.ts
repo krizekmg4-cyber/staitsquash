@@ -114,6 +114,9 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
     if (Number.isNaN(Date.parse(startsAt)) || Number.isNaN(Date.parse(endsAt))) {
       throw new Error(`Match ${index + 1} has an invalid start or end time`);
     }
+    if (Date.parse(endsAt) <= Date.parse(startsAt)) {
+      throw new Error(`Match ${index + 1} must end after it starts`);
+    }
     if (
       match.status != null &&
       match.status !== "upcoming" &&
@@ -143,16 +146,23 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
     };
   });
 
+  const playerNamesById = new Map<string, string>();
   const players = Array.isArray(raw.players)
     ? raw.players.map((player, index) => {
         if (!player || typeof player !== "object") {
           throw new Error(`Player ${index + 1} is invalid`);
         }
         const item = player as Record<string, unknown>;
-        return {
-          id: readRequiredString(item.id, "player id", index),
-          name: readRequiredString(item.name, "player name", index),
-        };
+        const id = readRequiredString(item.id, "player id", index);
+        const name = readRequiredString(item.name, "player name", index);
+        const existingName = playerNamesById.get(id);
+        if (existingName !== undefined && existingName !== name) {
+          throw new Error(
+            `Club Locker returned conflicting names for player ID "${id}"`,
+          );
+        }
+        playerNamesById.set(id, name);
+        return { id, name };
       })
     : undefined;
 

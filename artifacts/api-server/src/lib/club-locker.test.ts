@@ -158,6 +158,47 @@ test("rejects duplicate external match IDs", () => {
   );
 });
 
+test("rejects matches whose end time is not after the start time", () => {
+  for (const endsAt of [
+    "2026-09-16T14:30:00-04:00",
+    "2026-09-16T14:29:59-04:00",
+  ]) {
+    assert.throws(
+      () =>
+        parseClubLockerFeed({
+          matches: [incoming("impossible-time", { endsAt })],
+        }),
+      /must end after it starts/,
+    );
+  }
+});
+
+test("rejects conflicting duplicate player IDs", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [],
+        players: [
+          { id: "player-1", name: "Player One" },
+          { id: "player-1", name: "Different Player" },
+        ],
+      }),
+    /conflicting names for player ID "player-1"/,
+  );
+});
+
+test("allows identical duplicate player records", () => {
+  const feed = parseClubLockerFeed({
+    matches: [],
+    players: [
+      { id: "player-1", name: "Player One" },
+      { id: "player-1", name: "Player One" },
+    ],
+  });
+
+  assert.equal(feed.players?.length, 2);
+});
+
 test("invalid feeds never persist a replacement state", async () => {
   const original = stateWith(storedMatch("existing"));
   let persisted = false;
@@ -175,6 +216,49 @@ test("invalid feeds never persist a replacement state", async () => {
 
   assert.equal(persisted, false);
   assert.equal(original.matches[0]?.opponent, "Original opponent");
+});
+
+test("schedule and player conflicts never change stored tracker state", async () => {
+  const invalidFeeds = [
+    {
+      matches: [
+        incoming("existing", {
+          opponent: "Changed opponent",
+          endsAt: "2026-09-16T14:30:00-04:00",
+        }),
+      ],
+    },
+    {
+      matches: [
+        incoming("existing", {
+          opponent: "Changed opponent",
+        }),
+      ],
+      players: [
+        { id: "player-1", name: "Player One" },
+        { id: "player-1", name: "Different Player" },
+      ],
+    },
+  ];
+
+  for (const invalidFeed of invalidFeeds) {
+    const original = stateWith(storedMatch("existing"));
+    const snapshot = structuredClone(original);
+    let persisted = false;
+
+    await assert.rejects(
+      refreshTrackerState(
+        async () => original,
+        async () => parseClubLockerFeed(invalidFeed),
+        async () => {
+          persisted = true;
+        },
+      ),
+    );
+
+    assert.equal(persisted, false);
+    assert.deepEqual(original, snapshot);
+  }
 });
 
 test("unavailable feeds leave stored tracker state unchanged", async () => {
