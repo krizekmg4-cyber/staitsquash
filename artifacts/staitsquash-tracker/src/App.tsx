@@ -604,19 +604,39 @@ function TrackerPage() {
   );
 }
 
+function PlayerNotFoundState() {
+  return (
+    <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-5 text-center">
+      <div className="max-w-sm">
+        <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Player link</p>
+        <h1 className="mt-3 font-serif text-3xl font-bold">This player could not be found.</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask your coach or match desk for an updated link.</p>
+      </div>
+    </div>
+  );
+}
+
 function PlayerView() {
   const { playerId } = useParams<{ playerId: string }>();
-  const tracker = useGetPlayerTracker(playerId, { query: { queryKey: getGetPlayerTrackerQueryKey(playerId), staleTime: 30_000 } });
+  const tracker = useGetPlayerTracker(playerId, {
+    query: {
+      queryKey: getGetPlayerTrackerQueryKey(playerId),
+      staleTime: 30_000,
+      retry: (failureCount, error) => error.status !== 404 && failureCount < 3,
+    },
+  });
   const state = tracker.data;
   const player = state?.player;
   const matches = useMemo(
-    () => [...(state?.matches ?? [])]
+    () => (state?.matches ?? [])
+      .filter((match) => match.playerId === player?.id)
       .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
-    [state?.matches],
+    [player?.id, state?.matches],
   );
   const upcoming = matches.filter((match) => match.status === 'upcoming');
   const completed = matches.filter((match) => match.status === 'completed').reverse();
   const nextMatch = upcoming[0];
+  const playerNotFound = tracker.isError && tracker.error.status === 404;
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -625,18 +645,9 @@ function PlayerView() {
   }, [player, state?.branding.name]);
 
   if (tracker.isLoading) return <TrackerSkeleton />;
+  if (playerNotFound) return <PlayerNotFoundState />;
   if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
-  if (!state || !player) {
-    return (
-      <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-5 text-center">
-        <div className="max-w-sm">
-          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Player link</p>
-          <h1 className="mt-3 font-serif text-3xl font-bold">This player could not be found.</h1>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask your coach or match desk for an updated link.</p>
-        </div>
-      </div>
-    );
-  }
+  if (!state || !player) return <PlayerNotFoundState />;
 
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">

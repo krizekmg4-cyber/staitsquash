@@ -211,6 +211,93 @@ async function withTrackerServer(
   }
 }
 
+test("player tracker returns only the requested player's matches and assigned coaches", async () => {
+  const state = healthyState();
+  state.players = [
+    { id: "player-1", name: "Player One" },
+    { id: "player-2", name: "Player Two" },
+  ];
+  state.coaches = [
+    { id: "coach-1", name: "Coach One" },
+    { id: "coach-2", name: "Coach Two" },
+    { id: "coach-private", name: "Private Coach" },
+  ];
+  state.branding = { name: "StaitSquash", logoPath: null };
+  state.matches = [
+    {
+      id: "player-1-match",
+      externalId: null,
+      playerId: "player-1",
+      opponent: "Visible Opponent",
+      startsAt: "2026-09-17T10:00:00.000Z",
+      endsAt: "2026-09-17T10:45:00.000Z",
+      venue: "Visible Venue",
+      court: "1",
+      coachId: "coach-1",
+      status: "upcoming",
+      result: null,
+      report: null,
+    },
+    {
+      id: "player-1-second-match",
+      externalId: null,
+      playerId: "player-1",
+      opponent: "Second Visible Opponent",
+      startsAt: "2026-09-18T10:00:00.000Z",
+      endsAt: "2026-09-18T10:45:00.000Z",
+      venue: "Visible Venue",
+      court: "2",
+      coachId: "coach-2",
+      status: "upcoming",
+      result: null,
+      report: null,
+    },
+    {
+      id: "player-2-private-match",
+      externalId: null,
+      playerId: "player-2",
+      opponent: "Private Opponent",
+      startsAt: "2026-09-17T11:00:00.000Z",
+      endsAt: "2026-09-17T11:45:00.000Z",
+      venue: "Private Venue",
+      court: "3",
+      coachId: "coach-private",
+      status: "upcoming",
+      result: null,
+      report: null,
+    },
+  ];
+
+  await withTrackerServer(state, async (url) => {
+    const response = await fetch(`${url}/players/player-1/tracker`);
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      player: { id: string };
+      matches: Array<{ id: string; playerId: string }>;
+      coaches: Array<{ id: string }>;
+      players?: unknown;
+    };
+
+    assert.equal(body.player.id, "player-1");
+    assert.deepEqual(body.matches.map((match) => match.id), [
+      "player-1-match",
+      "player-1-second-match",
+    ]);
+    assert.ok(body.matches.every((match) => match.playerId === "player-1"));
+    assert.deepEqual(body.coaches.map((coach) => coach.id), ["coach-1", "coach-2"]);
+    assert.equal(body.players, undefined);
+    assert.doesNotMatch(JSON.stringify(body), /Player Two|Private Opponent|Private Coach|Private Venue/);
+  });
+});
+
+test("unknown player tracker links return a safe not-found response", async () => {
+  await withTrackerServer(healthyState(), async (url) => {
+    const response = await fetch(`${url}/players/unknown-player/tracker`);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Player not found" });
+  });
+});
+
 test("refresh route sends matching failure and recovery webhook payloads once", async () => {
   const originalFetch = globalThis.fetch;
   const originalEnvironment = {

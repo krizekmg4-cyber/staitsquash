@@ -1,5 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import App from './App';
+
+vi.mock('@clerk/react', () => ({
+  ClerkProvider: ({ children }: { children: React.ReactNode }) => children,
+  SignIn: () => <div>Sign in form</div>,
+  Show: ({ children, when }: { children: React.ReactNode; when: 'signed-in' | 'signed-out' }) => (
+    (when === 'signed-in') === signedIn ? children : null
+  ),
+  useClerk: () => ({ addListener: () => () => undefined }),
+}));
 
 afterEach(() => cleanup());
 
@@ -228,6 +238,81 @@ describe('tracker logo settings', () => {
     render(<App />);
     expect(screen.getByRole('heading', { name: 'StaitSquash tracker' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Staff sign in' })).toBeInTheDocument();
+    expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
+  });
+});
+
+describe('read-only player links', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/players/player-1');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.pushState({}, '', '/');
+  });
+
+  it('renders only the requested player, their matches, and assigned coaches', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/players/player-1/tracker')) {
+        return Response.json({
+          player: { id: 'player-1', name: 'Visible Player' },
+          matches: [
+            {
+              ...tracker.matches[0],
+              id: 'visible-match',
+              opponent: 'Visible Opponent',
+              coachId: 'coach-1',
+            },
+            {
+              ...tracker.matches[0],
+              id: 'private-match',
+              playerId: 'player-2',
+              opponent: 'Private Opponent',
+              venue: 'Private Venue',
+              coachId: 'coach-private',
+            },
+          ],
+          coaches: [
+            { id: 'coach-1', name: 'Visible Coach' },
+            { id: 'coach-private', name: 'Private Coach' },
+          ],
+          branding: tracker.branding,
+          lastUpdatedAt: tracker.lastUpdatedAt,
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Visible Player' })).toBeInTheDocument();
+    expect(screen.getByText('Visible Opponent')).toBeInTheDocument();
+    expect(screen.getByText('Visible Coach')).toBeInTheDocument();
+    expect(screen.queryByText('Private Opponent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Private Venue')).not.toBeInTheDocument();
+    expect(screen.queryByText('Private Coach')).not.toBeInTheDocument();
+    expect(screen.queryByText('Alex Morgan')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coach Two')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
+  });
+
+  it('shows a safe not-found state for an unknown player link', async () => {
+    window.history.replaceState({}, '', '/players/unknown-player');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/players/unknown-player/tracker')) {
+        return Response.json({ error: 'Player not found' }, { status: 404 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'This player could not be found.' })).toBeInTheDocument();
+    expect(screen.getByText('Ask your coach or match desk for an updated link.')).toBeInTheDocument();
+    expect(screen.queryByText('Player One')).not.toBeInTheDocument();
     expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
   });
 });
