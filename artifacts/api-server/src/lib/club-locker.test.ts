@@ -441,6 +441,59 @@ test("rescheduled imported matches cannot overlap absent saved history", async (
   }
 });
 
+test("rescheduled imported matches can start when absent saved history ends", async () => {
+  const reportedMatch = storedMatch("reported", {
+    report: {
+      matchId: "stored-reported",
+      observations: ["Good recovery"],
+      transcript: null,
+      updatedAt: "2026-09-16T18:00:00Z",
+    },
+  });
+  const absentSavedMatches = [
+    storedMatch("completed", { status: "completed", result: "Won 3-1" }),
+    reportedMatch,
+  ];
+
+  for (const absentSavedMatch of absentSavedMatches) {
+    const imported = storedMatch("existing", {
+      coachId: "coach-1",
+      result: "Local result",
+    });
+    const original = stateWith(imported, absentSavedMatch);
+    const snapshot = structuredClone(original);
+    let persisted: TrackerState | null = null;
+
+    const refreshed = await refreshTrackerState(
+      async () => original,
+      async () => ({
+        matches: [
+          incoming("existing", {
+            opponent: "Changed opponent",
+            startsAt: absentSavedMatch.endsAt,
+            endsAt: "2026-09-16T16:00:00-04:00",
+            venue: "Changed venue",
+            court: "Court 7",
+          }),
+        ],
+      }),
+      async (replacement) => {
+        persisted = replacement;
+      },
+    );
+
+    const refreshedImported = refreshed.matches.find(
+      (match) => match.externalId === "existing",
+    );
+    assert.ok(refreshedImported);
+    assert.equal(refreshedImported.startsAt, absentSavedMatch.endsAt);
+    assert.equal(refreshedImported.coachId, "coach-1");
+    assert.equal(refreshedImported.result, "Local result");
+    assert.deepEqual(persisted, refreshed);
+    assert.deepEqual(original, snapshot);
+  }
+});
+
 test("refresh validates typed feeds before merging or persisting them", async () => {
   const invalidFeeds = [
     {
