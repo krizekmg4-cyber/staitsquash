@@ -426,7 +426,7 @@ test("retained-match overlaps never mutate or persist tracker state", async () =
   assert.deepEqual(original, snapshot);
 });
 
-test("rescheduled imported matches cannot overlap absent saved history", async () => {
+test("rescheduled imported matches cannot overlap absent saved history across timezone offsets", async () => {
   const reportedMatch = storedMatch("reported", {
     report: {
       matchId: "stored-reported",
@@ -456,8 +456,8 @@ test("rescheduled imported matches cannot overlap absent saved history", async (
           matches: [
             incoming("existing", {
               opponent: "Changed opponent",
-              startsAt: "2026-09-16T15:00:00-04:00",
-              endsAt: "2026-09-16T15:45:00-04:00",
+              startsAt: "2026-09-16T12:14:59-07:00",
+              endsAt: "2026-09-16T13:00:00-07:00",
               venue: "Changed venue",
               court: "Court 7",
             }),
@@ -477,7 +477,7 @@ test("rescheduled imported matches cannot overlap absent saved history", async (
   }
 });
 
-test("rescheduled imported matches can start when absent saved history ends", async () => {
+test("rescheduled imported matches can start at an equivalent boundary instant across timezone offsets", async () => {
   const reportedMatch = storedMatch("reported", {
     report: {
       matchId: "stored-reported",
@@ -506,8 +506,8 @@ test("rescheduled imported matches can start when absent saved history ends", as
         matches: [
           incoming("existing", {
             opponent: "Changed opponent",
-            startsAt: absentSavedMatch.endsAt,
-            endsAt: "2026-09-16T16:00:00-04:00",
+            startsAt: "2026-09-16T12:15:00-07:00",
+            endsAt: "2026-09-16T13:00:00-07:00",
             venue: "Changed venue",
             court: "Court 7",
           }),
@@ -522,7 +522,11 @@ test("rescheduled imported matches can start when absent saved history ends", as
       (match) => match.externalId === "existing",
     );
     assert.ok(refreshedImported);
-    assert.equal(refreshedImported.startsAt, absentSavedMatch.endsAt);
+    assert.equal(refreshedImported.startsAt, "2026-09-16T12:15:00-07:00");
+    assert.equal(
+      Date.parse(refreshedImported.startsAt),
+      Date.parse(absentSavedMatch.endsAt),
+    );
     assert.equal(refreshedImported.coachId, "coach-1");
     assert.equal(refreshedImported.result, "Local result");
     assert.deepEqual(persisted, refreshed);
