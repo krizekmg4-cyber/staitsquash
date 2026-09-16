@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "xmsuAZZJY15XuEyp_QdPS"
+uri = "file://artifacts/staitsquash-video/public/audio/bg_music.mp3"
+type = "audio"
+title = "StaitSquash background music"
+description = "Generated music: Driving modern instrumental background music scoring a vertical youth squash tournament product walkthrough. Tight muted percussion, warm analog bass, crisp marimba-like accents and …"
