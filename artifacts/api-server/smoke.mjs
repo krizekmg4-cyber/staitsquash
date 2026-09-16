@@ -50,6 +50,7 @@ export async function runBundleSmoke({
   let shutdownTimeout;
   let startupConfirmed = false;
   let failure;
+  let stdoutRemainder = "";
 
   function stopChild() {
     if (child.killed) return;
@@ -60,17 +61,41 @@ export async function runBundleSmoke({
     );
   }
 
-  function remember(chunk) {
-    output.push(chunk);
-    if (!startupConfirmed && output.join("").includes("Server listening")) {
-      startupConfirmed = true;
-      clearTimeout(startupTimeout);
-      stopChild();
+  function confirmStartupFromStdout(chunk) {
+    stdoutRemainder += chunk;
+    const lines = stdoutRemainder.split("\n");
+    stdoutRemainder = lines.pop() ?? "";
+
+    for (const line of lines) {
+      try {
+        const event = JSON.parse(line);
+        if (
+          event?.msg === "Server listening" &&
+          event?.port === port &&
+          event?.level === 30
+        ) {
+          startupConfirmed = true;
+          clearTimeout(startupTimeout);
+          stopChild();
+          return;
+        }
+      } catch {
+        // Non-JSON application output is not a startup signal.
+      }
     }
   }
 
-  child.stdout.on("data", remember);
-  child.stderr.on("data", remember);
+  function rememberStdout(chunk) {
+    output.push(chunk);
+    if (!startupConfirmed) confirmStartupFromStdout(chunk);
+  }
+
+  function rememberStderr(chunk) {
+    output.push(chunk);
+  }
+
+  child.stdout.on("data", rememberStdout);
+  child.stderr.on("data", rememberStderr);
 
   await new Promise((resolve, reject) => {
     child.once("error", reject);

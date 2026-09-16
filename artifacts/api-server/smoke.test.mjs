@@ -65,12 +65,38 @@ test("passes after startup and removes the child process", async () => {
       import { createServer } from "node:net";
       const server = createServer();
       server.listen(Number(process.env.PORT), "127.0.0.1", () => {
-        console.log("Server listening");
+         console.log(JSON.stringify({
+           level: 30,
+           port: Number(process.env.PORT),
+           msg: "Server listening"
+         }));
       });
     `,
   );
 
   await runFixture(entryPath);
+  assert.equal(configuredPortServer.listening, true);
+});
+
+test("fails when an error merely quotes the startup phrase", async () => {
+  const entryPath = await createFixture(
+    "quotes-startup-phrase",
+    `console.error('Startup failed after diagnostic "Server listening"'); process.exit(24);`,
+  );
+  let childPid;
+
+  await assert.rejects(
+    runBundleSmoke({
+      entryPath,
+      startupTimeoutMs: 5_000,
+      shutdownTimeoutMs: 1_000,
+      onSpawn(child) {
+        childPid = child.pid;
+      },
+    }),
+    /exited before startup completed.*Server listening/s,
+  );
+  assertProcessGone(childPid);
   assert.equal(configuredPortServer.listening, true);
 });
 
