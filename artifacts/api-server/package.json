@@ -12,7 +12,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node ./test.mjs",
-    "test:schedule": "node --experimental-strip-types --test src/lib/club-locker.test.ts"
+    "test:schedule": "node ./test.mjs src/lib/club-locker.test.ts src/routes/tracker.test.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

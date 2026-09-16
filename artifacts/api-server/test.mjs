@@ -16,10 +16,12 @@ async function findTests(directory, extension = ".test.ts") {
 }
 
 const outputDirectory = ".test-dist";
+const testFiles = process.argv.slice(2);
+const entryPoints = testFiles.length > 0 ? testFiles : await findTests("src");
 await rm(outputDirectory, { recursive: true, force: true });
 
 await build({
-  entryPoints: await findTests("src"),
+  entryPoints,
   outdir: outputDirectory,
   outbase: "src",
   bundle: true,
