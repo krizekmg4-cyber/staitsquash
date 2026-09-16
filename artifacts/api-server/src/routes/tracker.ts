@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, trackerStateTable } from "@workspace/db";
 import {
   GetTrackerResponse,
   RefreshTrackerResponse,
@@ -121,6 +120,7 @@ function normalizeState(state: TrackerState): TrackerState {
 }
 
 async function getState(): Promise<TrackerState> {
+  const { db, trackerStateTable } = await import("@workspace/db");
   const [row] = await db
     .select()
     .from(trackerStateTable)
@@ -137,6 +137,7 @@ async function getState(): Promise<TrackerState> {
 }
 
 async function saveState(state: TrackerState): Promise<void> {
+  const { db, trackerStateTable } = await import("@workspace/db");
   await db
     .update(trackerStateTable)
     .set({ data: state, updatedAt: new Date() })
@@ -239,13 +240,22 @@ async function alertStaffOfRecovery(
   }
 }
 
-const router: IRouter = Router();
+type TrackerRouterDependencies = {
+  getState: () => Promise<TrackerState>;
+  saveState: (state: TrackerState) => Promise<void>;
+};
 
-router.get("/tracker", async (_req, res): Promise<void> => {
-  res.json(GetTrackerResponse.parse(await getState()));
-});
+export function createTrackerRouter(
+  dependencies: TrackerRouterDependencies = { getState, saveState },
+): IRouter {
+  const router: IRouter = Router();
+  const { getState: loadState, saveState: persistState } = dependencies;
 
-router.patch("/matches/:matchId", async (req, res): Promise<void> => {
+  router.get("/tracker", async (_req, res): Promise<void> => {
+    res.json(GetTrackerResponse.parse(await loadState()));
+  });
+
+  router.patch("/matches/:matchId", async (req, res): Promise<void> => {
   const params = UpdateMatchParams.safeParse(req.params);
   const body = UpdateMatchBody.safeParse(req.body);
   if (!params.success) {
@@ -257,7 +267,7 @@ router.patch("/matches/:matchId", async (req, res): Promise<void> => {
     return;
   }
 
-  const state = await getState();
+  const state = await loadState();
   const match = state.matches.find((item) => item.id === params.data.matchId);
   if (!match) {
     res.status(404).json({ error: "Match not found" });
@@ -266,11 +276,11 @@ router.patch("/matches/:matchId", async (req, res): Promise<void> => {
 
   Object.assign(match, body.data);
   state.lastUpdatedAt = new Date().toISOString();
-  await saveState(state);
+  await persistState(state);
   res.json(UpdateMatchResponse.parse(match));
-});
+  });
 
-router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
+  router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
   const params = SaveCoachReportParams.safeParse(req.params);
   const body = SaveCoachReportBody.safeParse(req.body);
   if (!params.success) {
@@ -282,7 +292,7 @@ router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
     return;
   }
 
-  const state = await getState();
+  const state = await loadState();
   const match = state.matches.find((item) => item.id === params.data.matchId);
   if (!match) {
     res.status(404).json({ error: "Match not found" });
@@ -300,25 +310,25 @@ router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
     updatedAt: new Date().toISOString(),
   };
   state.lastUpdatedAt = new Date().toISOString();
-  await saveState(state);
+  await persistState(state);
   res.json(SaveCoachReportResponse.parse(match.report));
-});
+  });
 
-router.post("/tracker/refresh", async (req, res): Promise<void> => {
+  router.post("/tracker/refresh", async (req, res): Promise<void> => {
   const alertThreshold = getAlertThreshold();
   try {
-    const previousState = await getState();
+    const previousState = await loadState();
     const state = await refreshTrackerState(
       async () => previousState,
       fetchClubLockerFeed,
-      saveState,
+      persistState,
       alertThreshold,
     );
     const recovery = state.refreshHealth.pendingRecovery;
     if (recovery) {
       try {
         await alertStaffOfRecovery(recovery);
-        await saveState(clearPendingRecovery(state));
+        await persistState(clearPendingRecovery(state));
         req.log.info(
           {
             failedAttempts: recovery.failedAttempts,
@@ -336,10 +346,10 @@ router.post("/tracker/refresh", async (req, res): Promise<void> => {
     res.json(RefreshTrackerResponse.parse(state));
   } catch (error) {
     const failedState = recordRefreshFailure(
-      await getState(),
+      await loadState(),
       alertThreshold,
     );
-    await saveState(failedState);
+    await persistState(failedState);
     req.log.warn(
       {
         err: error,
@@ -356,7 +366,7 @@ router.post("/tracker/refresh", async (req, res): Promise<void> => {
       try {
         await alertStaff(failedState, error);
         failedState.refreshHealth.alertSentAt = new Date().toISOString();
-        await saveState(failedState);
+        await persistState(failedState);
         req.log.error(
           { consecutiveFailures: failedState.refreshHealth.consecutiveFailures },
           "Staff alerted about repeated Club Locker refresh failures",
@@ -369,6 +379,9 @@ router.post("/tracker/refresh", async (req, res): Promise<void> => {
     const message = error instanceof Error ? error.message : "Unknown Club Locker error";
     res.status(502).json({ error: `Refresh failed: ${message}` });
   }
-});
+  });
 
-export default router;
+  return router;
+}
+
+export default createTrackerRouter();
