@@ -232,6 +232,23 @@ function readRequiredString(value: unknown, field: string, index: number): strin
   return value.trim();
 }
 
+function readTimestampWithTimezone(
+  value: unknown,
+  field: string,
+  index: number,
+): string {
+  const timestamp = readRequiredString(value, field, index);
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(timestamp)) {
+    throw new Error(
+      `Match ${index + 1} ${field} must include an explicit timezone`,
+    );
+  }
+  if (Number.isNaN(Date.parse(timestamp))) {
+    throw new Error(`Match ${index + 1} has an invalid ${field}`);
+  }
+  return timestamp;
+}
+
 export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
   if (
     !value ||
@@ -253,11 +270,8 @@ export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
     }
     seen.add(externalId);
 
-    const startsAt = readRequiredString(match.startsAt, "startsAt", index);
-    const endsAt = readRequiredString(match.endsAt, "endsAt", index);
-    if (Number.isNaN(Date.parse(startsAt)) || Number.isNaN(Date.parse(endsAt))) {
-      throw new Error(`Match ${index + 1} has an invalid start or end time`);
-    }
+    const startsAt = readTimestampWithTimezone(match.startsAt, "startsAt", index);
+    const endsAt = readTimestampWithTimezone(match.endsAt, "endsAt", index);
     if (Date.parse(endsAt) <= Date.parse(startsAt)) {
       throw new Error(`Match ${index + 1} must end after it starts`);
     }

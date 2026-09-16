@@ -251,6 +251,39 @@ test("rejects duplicate external match IDs", () => {
   );
 });
 
+test("accepts match times with UTC markers and numeric timezone offsets", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("utc-time", {
+        startsAt: "2026-09-16T18:30:00Z",
+        endsAt: "2026-09-16T19:15:00Z",
+      }),
+      incoming("offset-time", {
+        playerId: "player-2",
+        startsAt: "2026-09-17T10:00:00+05:30",
+        endsAt: "2026-09-17T10:45:00+05:30",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+});
+
+test("rejects match times without an explicit timezone", () => {
+  for (const [field, value] of [
+    ["startsAt", "2026-09-16T14:30:00"],
+    ["endsAt", "2026-09-16T15:15:00"],
+  ] as const) {
+    assert.throws(
+      () =>
+        parseClubLockerFeed({
+          matches: [incoming(`timezone-free-${field}`, { [field]: value })],
+        }),
+      new RegExp(`${field} must include an explicit timezone`),
+    );
+  }
+});
+
 test("rejects matches whose end time is not after the start time", () => {
   for (const endsAt of [
     "2026-09-16T14:30:00-04:00",
