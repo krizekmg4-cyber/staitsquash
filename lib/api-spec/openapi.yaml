@@ -90,16 +90,27 @@ paths:
     post:
       operationId: refreshTracker
       tags: [tracker]
-      summary: Mark tracker as refreshed for future Club Locker integration
+      summary: Import the latest schedule from the configured Club Locker feed
       responses:
         "200":
-          description: Refreshed tracker state
+          description: Tracker state after a successful Club Locker import
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrackerState"
+        "502":
+          description: Club Locker could not be read or returned an invalid schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
     HealthStatus:
       type: object
       properties:

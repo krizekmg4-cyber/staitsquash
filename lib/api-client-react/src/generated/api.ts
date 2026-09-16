@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ApiError,
   CoachReport,
   CoachReportInput,
   HealthStatus,
@@ -397,7 +398,7 @@ export const getRefreshTrackerUrl = () => {
 }
 
 /**
- * @summary Mark tracker as refreshed for future Club Locker integration
+ * @summary Import the latest schedule from the configured Club Locker feed
  */
 export const refreshTracker = async ( options?: Parameters<typeof customFetch>[1]): Promise<TrackerState> => {
 
@@ -416,7 +417,7 @@ export const refreshTracker = async ( options?: Parameters<typeof customFetch>[1
 
 export const getRefreshTrackerMutationKey = () => ['refreshTracker'] as const;
 
-export const getRefreshTrackerMutationOptions = <TError = ErrorType<unknown>,
+export const getRefreshTrackerMutationOptions = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshTracker>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof refreshTracker>>, TError,void, TContext> => {
 
@@ -445,13 +446,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type RefreshTrackerMutationResult = NonNullable<Awaited<ReturnType<typeof refreshTracker>>>
 
-    export type RefreshTrackerMutationError = ErrorType<unknown>
+    export type RefreshTrackerMutationError = ErrorType<ApiError>
 
 
     /**
- * @summary Mark tracker as refreshed for future Club Locker integration
+ * @summary Import the latest schedule from the configured Club Locker feed
  */
-export const useRefreshTracker = <TError = ErrorType<unknown>,
+export const useRefreshTracker = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof refreshTracker>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof refreshTracker>>,

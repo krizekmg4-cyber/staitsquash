@@ -349,6 +349,7 @@ function TrackerPage() {
   const [completing, setCompleting] = useState<Match | null>(null);
   const [reporting, setReporting] = useState<Match | null>(null);
   const [toast, setToast] = useState('');
+  const [refreshError, setRefreshError] = useState('');
 
   useEffect(() => {
     if (!toast) return;
@@ -360,7 +361,23 @@ function TrackerPage() {
   const matches = useMemo(() => [...(state?.matches ?? [])].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)), [state?.matches]);
   const patchMatch = (updated: Match) => queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (old) => old ? { ...old, matches: old.matches.map((match) => match.id === updated.id ? updated : match), lastUpdatedAt: new Date().toISOString() } : old);
   const showSuccess = (message: string) => setToast(message);
-  const doRefresh = () => refresh.mutate(undefined, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Draw refreshed'); }, onError: () => showSuccess('Refresh failed — try again') });
+  const doRefresh = (quiet = false) => refresh.mutate(undefined, {
+    onSuccess: (next) => {
+      queryClient.setQueryData(getGetTrackerQueryKey(), next);
+      setRefreshError('');
+      if (!quiet) showSuccess('Club Locker draw refreshed');
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : 'Club Locker could not be reached';
+      setRefreshError(message.includes('Refresh failed:') ? message : 'Refresh failed — existing tracker data is unchanged');
+    },
+  });
+
+  useEffect(() => {
+    if (state?.source !== 'club-locker') return;
+    const timer = window.setInterval(() => doRefresh(true), 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [state?.source]);
   const saveMatch = (match: Match, data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => {
     updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
   };
@@ -380,6 +397,15 @@ function TrackerPage() {
     <div className="noise min-h-[100dvh] bg-background text-foreground">
       <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} />
       <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
+        {refreshError && (
+          <div data-testid="notice-refresh-error" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm">
+            <AlertCircle size={18} className="mt-0.5 shrink-0 text-destructive" />
+            <div>
+              <p className="font-bold">Club Locker refresh failed</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{refreshError}. Your existing matches, coach assignments, results, and reports are unchanged.</p>
+            </div>
+          </div>
+        )}
         <div className="rise-in flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">Saturday · match desk</p>

@@ -135,7 +135,7 @@ export const SaveCoachReportResponse = zod.object({
 
 
 /**
- * @summary Mark tracker as refreshed for future Club Locker integration
+ * @summary Import the latest schedule from the configured Club Locker feed
  */
 export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;

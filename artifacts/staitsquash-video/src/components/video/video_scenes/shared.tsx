@@ -16,7 +16,7 @@ export function SceneFrame({
   children: ReactNode;
   tone?: 'light' | 'dark';
 }) {
-  const light = false;
+  const light = tone === 'light';
   return (
     <motion.div
       className="absolute inset-0 overflow-hidden"
@@ -32,7 +32,7 @@ export function SceneFrame({
           initial={{ opacity: 0, x: -16 }}
           animate={{ opacity: 0.7, x: 0 }}
           transition={{ delay: 0.18, duration: 0.5, ease }}
-          style={{ color: 'rgba(244,241,233,.62)' }}
+          style={{ color: light ? 'var(--color-secondary)' : 'rgba(244,241,233,.62)' }}
         >
           {eyebrow}
         </motion.div>
@@ -50,7 +50,7 @@ export function SceneFrame({
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 0.72, y: 0 }}
             transition={{ delay: 0.48, duration: 0.62, ease }}
-            style={{ color: 'rgba(244,241,233,.72)' }}
+            style={{ color: light ? 'var(--color-secondary)' : 'rgba(244,241,233,.72)' }}
           >
             {copy}
           </motion.p>
