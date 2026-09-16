@@ -15,5 +15,10 @@ export interface CoachReport {
   observations: string[];
   /** @nullable */
   transcript?: string | null;
+  /**
+     * @nullable
+     * @pattern ^/objects/uploads/[0-9a-f-]+$
+     */
+  audioPath: string | null;
   updatedAt: Date;
 }

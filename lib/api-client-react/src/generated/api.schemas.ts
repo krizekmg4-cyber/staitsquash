@@ -42,6 +42,11 @@ export interface TrackerLogo {
   objectPath: string;
 }
 
+export interface StoredObject {
+  /** @pattern ^/objects/uploads/[0-9a-f-]+$ */
+  objectPath: string;
+}
+
 export interface TrackerSettingsInput {
   /** @minItems 1 */
   coaches: Coach[];
@@ -57,6 +62,11 @@ export interface CoachReport {
   observations: string[];
   /** @nullable */
   transcript?: string | null;
+  /**
+     * @nullable
+     * @pattern ^/objects/uploads/[0-9a-f-]+$
+     */
+  audioPath: string | null;
   updatedAt: string;
 }
 
@@ -70,6 +80,11 @@ export interface CoachReportInput {
   observations: string[];
   /** @nullable */
   transcript?: string | null;
+  /**
+     * @nullable
+     * @pattern ^/objects/uploads/[0-9a-f-]+$
+     */
+  audioPath?: string | null;
 }
 
 export type MatchStatus = typeof MatchStatus[keyof typeof MatchStatus];

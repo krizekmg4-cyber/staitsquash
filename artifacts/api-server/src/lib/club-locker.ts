@@ -16,6 +16,7 @@ type TrackerMatch = {
       matchId: string;
       observations: string[];
       transcript: string | null;
+      audioPath?: string | null;
       updatedAt: string;
     } | null;
   };

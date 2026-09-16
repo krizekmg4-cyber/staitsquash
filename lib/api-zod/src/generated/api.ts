@@ -23,6 +23,7 @@ export const HealthCheckResponse = zod.object({
 export const getTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const getTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
+export const getTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 export const getTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 
@@ -61,6 +62,7 @@ export const GetTrackerResponse = zod.object({
   "matchId": zod.string(),
   "observations": zod.array(zod.string()).min(getTrackerResponseMatchesItemReportOneObservationsMin).max(getTrackerResponseMatchesItemReportOneObservationsMax),
   "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(getTrackerResponseMatchesItemReportOneAudioPathRegExp).nullable(),
   "updatedAt": zod.coerce.date()
 }),zod.null()]).optional()
 })),
@@ -125,6 +127,7 @@ export const SaveTrackerSettingsBody = zod.object({
 export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMin = 3;
 export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMax = 3;
 
+export const saveTrackerSettingsResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 export const saveTrackerSettingsResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 
@@ -163,6 +166,7 @@ export const SaveTrackerSettingsResponse = zod.object({
   "matchId": zod.string(),
   "observations": zod.array(zod.string()).min(saveTrackerSettingsResponseMatchesItemReportOneObservationsMin).max(saveTrackerSettingsResponseMatchesItemReportOneObservationsMax),
   "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(saveTrackerSettingsResponseMatchesItemReportOneAudioPathRegExp).nullable(),
   "updatedAt": zod.coerce.date()
 }),zod.null()]).optional()
 })),
@@ -224,6 +228,7 @@ export const UpdateMatchBody = zod.object({
 export const updateMatchResponseReportOneObservationsMin = 3;
 export const updateMatchResponseReportOneObservationsMax = 3;
 
+export const updateMatchResponseReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const UpdateMatchResponse = zod.object({
@@ -242,6 +247,7 @@ export const UpdateMatchResponse = zod.object({
   "matchId": zod.string(),
   "observations": zod.array(zod.string()).min(updateMatchResponseReportOneObservationsMin).max(updateMatchResponseReportOneObservationsMax),
   "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(updateMatchResponseReportOneAudioPathRegExp).nullable(),
   "updatedAt": zod.coerce.date()
 }),zod.null()]).optional()
 })
@@ -259,23 +265,42 @@ export const saveCoachReportBodyObservationsItemMax = 220;
 export const saveCoachReportBodyObservationsMin = 3;
 export const saveCoachReportBodyObservationsMax = 3;
 
+export const saveCoachReportBodyAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const SaveCoachReportBody = zod.object({
   "observations": zod.array(zod.string().min(1).max(saveCoachReportBodyObservationsItemMax)).min(saveCoachReportBodyObservationsMin).max(saveCoachReportBodyObservationsMax),
-  "transcript": zod.string().nullish()
+  "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(saveCoachReportBodyAudioPathRegExp).nullish()
 })
 
 export const saveCoachReportResponseObservationsMin = 3;
 export const saveCoachReportResponseObservationsMax = 3;
 
+export const saveCoachReportResponseAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const SaveCoachReportResponse = zod.object({
   "matchId": zod.string(),
   "observations": zod.array(zod.string()).min(saveCoachReportResponseObservationsMin).max(saveCoachReportResponseObservationsMax),
   "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(saveCoachReportResponseAudioPathRegExp).nullable(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Store a recorded coach voice note in App Storage
+ */
+export const UploadCoachReportAudioParams = zod.object({
+  "matchId": zod.coerce.string()
+})
+
+export const uploadCoachReportAudioResponseObjectPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+
+
+export const UploadCoachReportAudioResponse = zod.object({
+  "objectPath": zod.string().regex(uploadCoachReportAudioResponseObjectPathRegExp)
 })
 
 
@@ -285,6 +310,7 @@ export const SaveCoachReportResponse = zod.object({
 export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
+export const refreshTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 export const refreshTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 
@@ -323,6 +349,7 @@ export const RefreshTrackerResponse = zod.object({
   "matchId": zod.string(),
   "observations": zod.array(zod.string()).min(refreshTrackerResponseMatchesItemReportOneObservationsMin).max(refreshTrackerResponseMatchesItemReportOneObservationsMax),
   "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(refreshTrackerResponseMatchesItemReportOneAudioPathRegExp).nullable(),
   "updatedAt": zod.coerce.date()
 }),zod.null()]).optional()
 })),

@@ -186,6 +186,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CoachReport"
+  /matches/{matchId}/report/audio:
+    post:
+      operationId: uploadCoachReportAudio
+      tags: [tracker]
+      summary: Store a recorded coach voice note in App Storage
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          audio/webm:
+            schema: { type: string, format: binary }
+          audio/ogg:
+            schema: { type: string, format: binary }
+          audio/mp4:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Stored voice note path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredObject"
+        "400":
+          description: Invalid or empty audio recording
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Match not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /tracker/refresh:
     post:
       operationId: refreshTracker
@@ -246,6 +285,13 @@ components:
         objectPath:
           type: string
           pattern: "^/objects/uploads/[0-9a-f-]+$"
+    StoredObject:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
     TrackerSettingsInput:
       type: object
       required: [coaches, branding]
@@ -259,7 +305,7 @@ components:
           $ref: "#/components/schemas/TrackerBranding"
     CoachReport:
       type: object
-      required: [matchId, observations, updatedAt]
+      required: [matchId, observations, audioPath, updatedAt]
       properties:
         matchId: { type: string }
         observations:
@@ -269,6 +315,9 @@ components:
           items: { type: string }
         transcript:
           type: ["string", "null"]
+        audioPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
         updatedAt: { type: string, format: date-time }
     CoachReportInput:
       type: object
@@ -281,6 +330,9 @@ components:
           items: { type: string, minLength: 1, maxLength: 220 }
         transcript:
           type: ["string", "null"]
+        audioPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
     Match:
       type: object
       required: [id, externalId, playerId, opponent, startsAt, endsAt, venue, court, coachId, status]

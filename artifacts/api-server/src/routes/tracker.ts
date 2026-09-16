@@ -6,6 +6,8 @@ import {
   GetTrackerHealthResponse,
   RefreshTrackerResponse,
   UploadTrackerLogoResponse,
+  UploadCoachReportAudioParams,
+  UploadCoachReportAudioResponse,
   SaveCoachReportBody,
   SaveCoachReportParams,
   SaveCoachReportResponse,
@@ -126,7 +128,11 @@ function normalizeState(state: TrackerState): ReadonlyTrackerState {
     matches: state.matches.map((match) => ({
       ...match,
       report: match.report
-        ? { ...match.report, observations: [...match.report.observations] }
+        ? {
+            ...match.report,
+            observations: [...match.report.observations],
+            audioPath: match.report.audioPath ?? null,
+          }
         : null,
     })),
     refreshHealth: state.refreshHealth
@@ -293,6 +299,7 @@ async function alertStaffOfRecovery(
 type TrackerRouterDependencies = {
   getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
+  objectStorage?: Pick<ObjectStorageService, "saveObject">;
 };
 
 function trackerResponse(state: ReadonlyTrackerState) {
@@ -317,7 +324,7 @@ export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = { getState, saveState },
 ): IRouter {
   const router: IRouter = Router();
-  const objectStorage = new ObjectStorageService();
+  const objectStorage = dependencies.objectStorage ?? new ObjectStorageService();
   const { getState: loadState, saveState: persistState } = dependencies;
   let mutationQueue: Promise<void> = Promise.resolve();
 
@@ -437,6 +444,7 @@ export function createTrackerRouter(
         matchId: match.id,
         observations: body.data.observations,
         transcript: body.data.transcript ?? null,
+        audioPath: body.data.audioPath ?? match.report?.audioPath ?? null,
         updatedAt: new Date().toISOString(),
       };
       state.lastUpdatedAt = new Date().toISOString();
@@ -444,6 +452,40 @@ export function createTrackerRouter(
       res.json(SaveCoachReportResponse.parse(match.report));
     });
   });
+
+  router.post(
+    "/matches/:matchId/report/audio",
+    express.raw({ type: ["audio/webm", "audio/ogg", "audio/mp4"], limit: "25mb" }),
+    async (req, res): Promise<void> => {
+      const params = UploadCoachReportAudioParams.safeParse(req.params);
+      if (!params.success) {
+        res.status(400).json({ error: params.error.message });
+        return;
+      }
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        res.status(400).json({ error: "Record a voice note before uploading" });
+        return;
+      }
+      const state = await loadState();
+      const match = state.matches.find((item) => item.id === params.data.matchId);
+      if (!match) {
+        res.status(404).json({ error: "Match not found" });
+        return;
+      }
+      if (match.status !== "completed") {
+        res.status(400).json({ error: "Voice notes can only be added to completed matches" });
+        return;
+      }
+      try {
+        const objectPath = `/objects/uploads/${randomUUID()}`;
+        await objectStorage.saveObject(objectPath, req.body, req.get("content-type")!);
+        res.json(UploadCoachReportAudioResponse.parse({ objectPath }));
+      } catch (error) {
+        req.log.error({ err: error }, "Could not store coach voice note");
+        res.status(500).json({ error: "Could not store coach voice note" });
+      }
+    },
+  );
 
   router.post("/tracker/refresh", async (req, res): Promise<void> => {
   await serializeMutation(async () => {

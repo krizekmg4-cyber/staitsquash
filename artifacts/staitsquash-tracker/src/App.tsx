@@ -11,6 +11,7 @@ import {
   Edit3,
   Mic,
   MicOff,
+  Play,
   RefreshCw,
   Save,
   Settings,
@@ -58,6 +59,7 @@ const getInitials = (name: string) =>
   name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 
 const logoSrc = (path: string | null) => path ? `/api/storage${path}` : null;
+const audioSrc = (path: string | null | undefined) => path ? `/api/storage${path}` : null;
 
 function TrackerSkeleton() {
   return (
@@ -240,6 +242,12 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { mat
           </div>
         </div>
         {isComplete && match.result && <p data-testid={`text-result-${match.id}`} className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs font-bold text-primary">Result <span className="ml-2 font-mono">{match.result}</span></p>}
+        {isComplete && match.report?.audioPath && (
+          <div className="mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-primary"><Play size={12} /> Coach voice note</p>
+            <audio data-testid={`audio-report-${match.id}`} controls preload="metadata" className="h-8 w-full" src={audioSrc(match.report.audioPath)!}>Your browser does not support audio playback.</audio>
+          </div>
+        )}
       </div>
     </article>
   );
@@ -283,44 +291,84 @@ function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; on
   );
 }
 
-function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (observations: string[], transcript: string | null) => void; saving: boolean }) {
+function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (observations: string[], transcript: string | null, audio: Blob | null) => Promise<void>; saving: boolean }) {
   const report = match.report;
   const [observations, setObservations] = useState<string[]>(report?.observations?.slice(0, 3) ?? ['', '', '']);
   const [transcript, setTranscript] = useState(report?.transcript ?? '');
   const [recording, setRecording] = useState(false);
+  const [finalizingRecording, setFinalizingRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const speechRef = useRef<{ stop: () => void } | null>(null);
   const updateObservation = (index: number, value: string) => setObservations((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
   const startRecording = async () => {
-    const SpeechRecognition = (window as typeof window & { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.onresult = (event: any) => {
-        const spoken = Array.from(event.results as ArrayLike<any>).slice(event.resultIndex).map((result: any) => result[0].transcript).join(' ');
-        setTranscript((current) => `${current}${current ? ' ' : ''}${spoken}`.trim());
-      };
-      recognition.onend = () => setRecording(false);
-      recognition.start();
-      speechRef.current = recognition;
-      setRecording(true);
+    setRecordingError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setRecordingError('Audio recording is not supported in this browser.');
       return;
     }
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    recorder.onstop = () => stream.getTracks().forEach((track) => track.stop());
-    recorder.start();
-    recorderRef.current = recorder;
-    setRecording(true);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
+      recorder.onerror = () => {
+        setRecordingError('The voice note could not be recorded. Please try again.');
+        setRecording(false);
+        setFinalizingRecording(false);
+        stream?.getTracks().forEach((track) => track.stop());
+      };
+      recorder.onstop = () => {
+        const audio = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        if (audio.size > 0) setRecordedAudio(audio);
+        else setRecordingError('No audio was captured. Please record the voice note again.');
+        stream?.getTracks().forEach((track) => track.stop());
+        recorderRef.current = null;
+        setFinalizingRecording(false);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      const SpeechRecognition = (window as typeof window & { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.onresult = (event: any) => {
+          const spoken = Array.from(event.results as ArrayLike<any>).slice(event.resultIndex).map((result: any) => result[0].transcript).join(' ');
+          setTranscript((current) => `${current}${current ? ' ' : ''}${spoken}`.trim());
+        };
+        recognition.onend = () => { speechRef.current = null; };
+        recognition.start();
+        speechRef.current = recognition;
+      }
+      setRecording(true);
+    } catch {
+      stream?.getTracks().forEach((track) => track.stop());
+      recorderRef.current = null;
+      setRecording(false);
+      setFinalizingRecording(false);
+      setRecordingError('Microphone access failed. Check browser permission and try again.');
+    }
   };
   const stopRecording = () => {
     speechRef.current?.stop();
     speechRef.current = null;
-    recorderRef.current?.stop();
-    recorderRef.current = null;
+    if (recorderRef.current?.state === 'recording') {
+      setFinalizingRecording(true);
+      recorderRef.current.stop();
+    }
     setRecording(false);
+  };
+  const submitReport = async () => {
+    setUploading(true);
+    try {
+      await onSave(observations.map((item) => item.trim()), transcript.trim() || null, recordedAudio);
+    } finally {
+      setUploading(false);
+    }
   };
   return (
     <Modal title="Coach report" eyebrow={`${match.opponent} · three takeaways`} onClose={() => { if (recording) stopRecording(); onClose(); }}>
@@ -338,9 +386,13 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
           <button data-testid="button-toggle-recording" onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
         </div>
         {recording && <p data-testid="status-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Recording in progress</p>}
+        {finalizingRecording && <p data-testid="status-finalizing-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Preparing voice note…</p>}
+        {!recording && recordedAudio && <p data-testid="status-recorded" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-primary">Voice note ready to save</p>}
+        {!recording && !recordedAudio && report?.audioPath && <audio controls preload="metadata" className="mt-3 h-8 w-full" src={audioSrc(report.audioPath)!}>Your browser does not support audio playback.</audio>}
+        {recordingError && <p data-testid="error-recording" role="alert" className="mt-3 text-xs font-medium text-destructive">{recordingError}</p>}
         <textarea data-testid="input-transcript" rows={2} value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Type a short voice-note transcript…" className="field mt-3 min-h-[64px] resize-none bg-card" />
       </div>
-      <button data-testid="button-save-report" disabled={saving || observations.some((item) => !item.trim())} onClick={() => onSave(observations.map((item) => item.trim()), transcript.trim() || null)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving report…' : 'Save three observations'}</button>
+      <button data-testid="button-save-report" disabled={saving || uploading || recording || finalizingRecording || observations.some((item) => !item.trim())} onClick={() => { void submitReport(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving || uploading ? 'Saving report…' : finalizingRecording ? 'Preparing voice note…' : 'Save three observations'}</button>
     </Modal>
   );
 }
@@ -458,8 +510,21 @@ function TrackerPage() {
   const completeMatch = (match: Match, result: string) => {
     updateMatch.mutate({ matchId: match.id, data: { status: 'completed', result } }, { onSuccess: (updated) => { patchMatch(updated); setCompleting(null); showSuccess('Match closed out'); } });
   };
-  const saveCoachReport = (match: Match, observations: string[], transcript: string | null) => {
-    saveReport.mutate({ matchId: match.id, data: { observations, transcript } }, { onSuccess: (report) => { patchMatch({ ...match, report }); setReporting(null); showSuccess('Coach report saved'); } });
+  const saveCoachReport = async (match: Match, observations: string[], transcript: string | null, audio: Blob | null) => {
+    let audioPath = match.report?.audioPath ?? null;
+    if (audio) {
+      const response = await fetch(`/api/matches/${encodeURIComponent(match.id)}/report/audio`, {
+        method: 'POST',
+        headers: { 'Content-Type': audio.type || 'audio/webm' },
+        body: audio,
+      });
+      if (!response.ok) throw new Error('Voice note could not be uploaded');
+      audioPath = (await response.json() as { objectPath: string }).objectPath;
+    }
+    const report = await saveReport.mutateAsync({ matchId: match.id, data: { observations, transcript, audioPath } });
+    patchMatch({ ...match, report });
+    setReporting(null);
+    showSuccess('Coach report saved');
   };
 
   if (tracker.isLoading) return <TrackerSkeleton />;
@@ -527,7 +592,7 @@ function TrackerPage() {
       </main>
       {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
-      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript) => saveCoachReport(reporting, observations, transcript)} saving={saveReport.isPending} />}
+      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
       {settingsOpen && <SettingsEditor state={state} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} onSave={(data) => saveSettings.mutate({ data }, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); setSettingsOpen(false); showSuccess('Settings saved'); }, onError: () => setToast('Settings could not be saved') })} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>

@@ -27,6 +27,7 @@ import type {
   Match,
   MatchUpdate,
   RefreshHealth,
+  StoredObject,
   TrackerLogo,
   TrackerSettingsInput,
   TrackerState
@@ -720,6 +721,95 @@ export const useSaveCoachReport = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSaveCoachReportMutationOptions(options));
+    }
+
+export const getUploadCoachReportAudioUrl = (matchId: string,) => {
+
+
+
+
+  return `/api/matches/${matchId}/report/audio`
+}
+
+/**
+ * @summary Store a recorded coach voice note in App Storage
+ */
+export const uploadCoachReportAudio = async (matchId: string,
+    uploadCoachReportAudioBody: Blob, options?: Parameters<typeof customFetch>[1]): Promise<StoredObject> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<StoredObject>(getUploadCoachReportAudioUrl(matchId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/webm', ...getHeaders(options?.headers) },
+    body: uploadCoachReportAudioBody
+  }
+);}
+
+
+
+
+
+export const getUploadCoachReportAudioMutationKey = () => ['uploadCoachReportAudio'] as const;
+
+export const getUploadCoachReportAudioMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadCoachReportAudio>>, TError,UploadCoachReportAudioMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadCoachReportAudio>>, TError,UploadCoachReportAudioMutationVariables, TContext> => {
+
+const mutationKey = getUploadCoachReportAudioMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadCoachReportAudio>>, UploadCoachReportAudioMutationVariables> = (props) => {
+          const {matchId,data} = props ?? {};
+
+          return  uploadCoachReportAudio(matchId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadCoachReportAudioMutationResult = NonNullable<Awaited<ReturnType<typeof uploadCoachReportAudio>>>
+    export type UploadCoachReportAudioMutationBody = BodyType<Blob>
+    export type UploadCoachReportAudioMutationError = ErrorType<ApiError>
+    export type UploadCoachReportAudioMutationVariables = {matchId: string;data: BodyType<Blob>}
+
+    /**
+ * @summary Store a recorded coach voice note in App Storage
+ */
+export const useUploadCoachReportAudio = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadCoachReportAudio>>, TError,UploadCoachReportAudioMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadCoachReportAudio>>,
+        TError,
+        UploadCoachReportAudioMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadCoachReportAudioMutationOptions(options));
     }
 
 export const getRefreshTrackerUrl = () => {

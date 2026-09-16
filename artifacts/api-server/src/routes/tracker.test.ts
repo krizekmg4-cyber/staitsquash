@@ -480,6 +480,8 @@ test("overlapping match edit and report save preserve both changes", async () =>
           "Consistently recovered to the T.",
           "Kept good width under pressure.",
         ],
+        transcript: "Stayed composed in the long rallies.",
+        audioPath: "/objects/uploads/123e4567-e89b-12d3-a456-426614174000",
       }),
     });
 
@@ -495,8 +497,67 @@ test("overlapping match edit and report save preserve both changes", async () =>
       state.matches[0]?.report?.observations[0],
       "Controlled the middle well.",
     );
+    assert.equal(
+      state.matches[0]?.report?.audioPath,
+      "/objects/uploads/123e4567-e89b-12d3-a456-426614174000",
+    );
   } finally {
     releaseFirstSave();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
+test("coach report audio upload stores bytes and returns its object path", async () => {
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: null,
+  }];
+  const audio = Buffer.from("recorded voice note");
+  const saved: Array<{ path: string; bytes: Buffer; contentType: string }> = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => undefined,
+    objectStorage: {
+      saveObject: async (path, bytes, contentType) => {
+        saved.push({ path, bytes, contentType });
+      },
+    },
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/matches/completed-match/report/audio`,
+      { method: "POST", headers: { "Content-Type": "audio/webm" }, body: audio },
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json() as { objectPath: string };
+    assert.match(body.objectPath, /^\/objects\/uploads\/[0-9a-f-]+$/);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0]?.path, body.objectPath);
+    assert.deepEqual(saved[0]?.bytes, audio);
+    assert.equal(saved[0]?.contentType, "audio/webm");
+  } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
