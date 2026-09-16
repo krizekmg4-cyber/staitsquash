@@ -1,0 +1,29 @@
+kind = "video"
+videoAspectRatio = "9:16"
+previewPath = "/staitsquash-video/"
+title = "StaitSquash Tracker Story"
+description = "A short vertical animated product walkthrough showing how StaitSquash tracks next matches, coach assignments, schedule conflicts, and three-point post-match reports."
+version = "1.0.0"
+id = "artifacts/staitsquash-video"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/staitsquash-video/" ]
+localPort = 23839
+
+[services.development]
+run = "pnpm --filter @workspace/staitsquash-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/staitsquash-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/staitsquash-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23839"
+BASE_PATH = "/staitsquash-video/"
