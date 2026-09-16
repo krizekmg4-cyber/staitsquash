@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import {
   parseClubLockerFeed,
+  recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
   type TrackerState,
@@ -74,7 +75,34 @@ const INITIAL_STATE: TrackerState = {
   ],
   lastUpdatedAt: "2026-09-15T12:00:00-04:00",
   source: "sample",
+  refreshHealth: {
+    consecutiveFailures: 0,
+    alertThreshold: 3,
+    lastFailureAt: null,
+    alertSentAt: null,
+  },
 };
+
+function getAlertThreshold(): number {
+  const configured = Number.parseInt(
+    process.env["CLUB_LOCKER_ALERT_THRESHOLD"] ?? "",
+    10,
+  );
+  return Number.isInteger(configured) && configured > 0 ? configured : 3;
+}
+
+function normalizeState(state: TrackerState): TrackerState {
+  const alertThreshold = getAlertThreshold();
+  return {
+    ...state,
+    refreshHealth: state.refreshHealth ?? {
+      consecutiveFailures: 0,
+      alertThreshold,
+      lastFailureAt: null,
+      alertSentAt: null,
+    },
+  };
+}
 
 async function getState(): Promise<TrackerState> {
   const [row] = await db
@@ -82,14 +110,14 @@ async function getState(): Promise<TrackerState> {
     .from(trackerStateTable)
     .where(eq(trackerStateTable.id, "main"));
 
-  if (row) return row.data as TrackerState;
+  if (row) return normalizeState(row.data as TrackerState);
 
   const [created] = await db
     .insert(trackerStateTable)
     .values({ id: "main", data: INITIAL_STATE })
     .returning();
 
-  return created.data as TrackerState;
+  return normalizeState(created.data as TrackerState);
 }
 
 async function saveState(state: TrackerState): Promise<void> {
@@ -117,6 +145,35 @@ async function fetchClubLockerFeed(): Promise<ClubLockerFeed> {
       throw new Error(`Club Locker returned HTTP ${response.status}`);
     }
     return parseClubLockerFeed(await response.json());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function alertStaff(state: TrackerState, error: unknown): Promise<void> {
+  const url = process.env["STAFF_ALERT_WEBHOOK_URL"];
+  if (!url) {
+    throw new Error("STAFF_ALERT_WEBHOOK_URL is not configured");
+  }
+
+  const message = error instanceof Error ? error.message : "Unknown Club Locker error";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `StaitSquash alert: Club Locker schedule refresh has failed ${state.refreshHealth.consecutiveFailures} consecutive times. Latest error: ${message}`,
+        event: "club-locker-refresh-failing",
+        consecutiveFailures: state.refreshHealth.consecutiveFailures,
+        lastFailureAt: state.refreshHealth.lastFailureAt,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Staff alert webhook returned HTTP ${response.status}`);
+    }
   } finally {
     clearTimeout(timeout);
   }
@@ -188,15 +245,47 @@ router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
 });
 
 router.post("/tracker/refresh", async (req, res): Promise<void> => {
+  const alertThreshold = getAlertThreshold();
   try {
     const state = await refreshTrackerState(
       getState,
       fetchClubLockerFeed,
       saveState,
+      alertThreshold,
     );
     res.json(RefreshTrackerResponse.parse(state));
   } catch (error) {
-    req.log.warn({ err: error }, "Club Locker refresh failed");
+    const failedState = recordRefreshFailure(
+      await getState(),
+      alertThreshold,
+    );
+    await saveState(failedState);
+    req.log.warn(
+      {
+        err: error,
+        consecutiveFailures: failedState.refreshHealth.consecutiveFailures,
+        alertThreshold,
+      },
+      "Club Locker refresh failed",
+    );
+
+    const shouldAlert =
+      failedState.refreshHealth.consecutiveFailures >= alertThreshold &&
+      failedState.refreshHealth.alertSentAt === null;
+    if (shouldAlert) {
+      try {
+        await alertStaff(failedState, error);
+        failedState.refreshHealth.alertSentAt = new Date().toISOString();
+        await saveState(failedState);
+        req.log.error(
+          { consecutiveFailures: failedState.refreshHealth.consecutiveFailures },
+          "Staff alerted about repeated Club Locker refresh failures",
+        );
+      } catch (alertError) {
+        req.log.error({ err: alertError }, "Could not alert staff about refresh failures");
+      }
+    }
+
     const message = error instanceof Error ? error.message : "Unknown Club Locker error";
     res.status(502).json({ error: `Refresh failed: ${message}` });
   }

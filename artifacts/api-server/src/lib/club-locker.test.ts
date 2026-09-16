@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  clearRefreshFailures,
   mergeClubLockerFeed,
   parseClubLockerFeed,
+  recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
   type TrackerState,
@@ -47,6 +49,12 @@ const stateWith = (...matches: TrackerState["matches"]): TrackerState => ({
   matches,
   lastUpdatedAt: "2026-09-15T12:00:00-04:00",
   source: "club-locker",
+  refreshHealth: {
+    consecutiveFailures: 0,
+    alertThreshold: 3,
+    lastFailureAt: null,
+    alertSentAt: null,
+  },
 });
 
 test("adds new external match IDs with stable IDs and safe defaults", () => {
@@ -188,4 +196,37 @@ test("unavailable feeds leave stored tracker state unchanged", async () => {
 
   assert.equal(persisted, false);
   assert.equal(original.matches[0]?.opponent, "Original opponent");
+});
+
+test("counts consecutive refresh failures and preserves alert state", () => {
+  const first = recordRefreshFailure(
+    stateWith(),
+    2,
+    "2026-09-16T12:00:00.000Z",
+  );
+  first.refreshHealth.alertSentAt = "2026-09-16T12:01:00.000Z";
+  const second = recordRefreshFailure(
+    first,
+    2,
+    "2026-09-16T12:05:00.000Z",
+  );
+
+  assert.deepEqual(second.refreshHealth, {
+    consecutiveFailures: 2,
+    alertThreshold: 2,
+    lastFailureAt: "2026-09-16T12:05:00.000Z",
+    alertSentAt: "2026-09-16T12:01:00.000Z",
+  });
+});
+
+test("successful refresh clears the failure condition", () => {
+  const failing = recordRefreshFailure(stateWith(), 2);
+  const healthy = clearRefreshFailures(failing, 4);
+
+  assert.deepEqual(healthy.refreshHealth, {
+    consecutiveFailures: 0,
+    alertThreshold: 4,
+    lastFailureAt: null,
+    alertSentAt: null,
+  });
 });

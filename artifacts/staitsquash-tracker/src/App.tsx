@@ -358,6 +358,7 @@ function TrackerPage() {
   }, [toast]);
 
   const state = tracker.data;
+  const persistedRefreshFailures = state?.refreshHealth.consecutiveFailures ?? 0;
   const matches = useMemo(() => [...(state?.matches ?? [])].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)), [state?.matches]);
   const patchMatch = (updated: Match) => queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (old) => old ? { ...old, matches: old.matches.map((match) => match.id === updated.id ? updated : match), lastUpdatedAt: new Date().toISOString() } : old);
   const showSuccess = (message: string) => setToast(message);
@@ -370,6 +371,7 @@ function TrackerPage() {
     onError: (error) => {
       const message = error instanceof Error ? error.message : 'Club Locker could not be reached';
       setRefreshError(message.includes('Refresh failed:') ? message : 'Refresh failed — existing tracker data is unchanged');
+      queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() });
     },
   });
 
@@ -397,12 +399,17 @@ function TrackerPage() {
     <div className="noise min-h-[100dvh] bg-background text-foreground">
       <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} />
       <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
-        {refreshError && (
+        {(refreshError || persistedRefreshFailures > 0) && (
           <div data-testid="notice-refresh-error" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm">
             <AlertCircle size={18} className="mt-0.5 shrink-0 text-destructive" />
             <div>
               <p className="font-bold">Club Locker refresh failed</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{refreshError}. Your existing matches, coach assignments, results, and reports are unchanged.</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {persistedRefreshFailures > 0
+                  ? `${persistedRefreshFailures} consecutive refresh ${persistedRefreshFailures === 1 ? 'attempt has' : 'attempts have'} failed${state.refreshHealth.alertSentAt ? ', and staff have been alerted' : ''}.`
+                  : `${refreshError}.`}
+                {' '}Your existing matches, coach assignments, results, and reports are unchanged.
+              </p>
             </div>
           </div>
         )}

@@ -23,6 +23,9 @@ export const HealthCheckResponse = zod.object({
 export const getTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const getTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
+export const getTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
+
+
 
 
 export const GetTrackerResponse = zod.object({
@@ -54,7 +57,13 @@ export const GetTrackerResponse = zod.object({
 }),zod.null()]).optional()
 })),
   "lastUpdatedAt": zod.coerce.date(),
-  "source": zod.enum(['sample', 'club-locker'])
+  "source": zod.enum(['sample', 'club-locker']),
+  "refreshHealth": zod.object({
+  "consecutiveFailures": zod.number().int().min(getTrackerResponseRefreshHealthConsecutiveFailuresMin),
+  "alertThreshold": zod.number().int().min(1),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "alertSentAt": zod.coerce.date().nullable()
+})
 })
 
 
@@ -140,6 +149,9 @@ export const SaveCoachReportResponse = zod.object({
 export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
+export const refreshTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
+
+
 
 
 export const RefreshTrackerResponse = zod.object({
@@ -171,7 +183,13 @@ export const RefreshTrackerResponse = zod.object({
 }),zod.null()]).optional()
 })),
   "lastUpdatedAt": zod.coerce.date(),
-  "source": zod.enum(['sample', 'club-locker'])
+  "source": zod.enum(['sample', 'club-locker']),
+  "refreshHealth": zod.object({
+  "consecutiveFailures": zod.number().int().min(refreshTrackerResponseRefreshHealthConsecutiveFailuresMin),
+  "alertThreshold": zod.number().int().min(1),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "alertSentAt": zod.coerce.date().nullable()
+})
 })
 
 

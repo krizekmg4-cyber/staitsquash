@@ -22,7 +22,46 @@ export type TrackerState = {
   }>;
   lastUpdatedAt: string;
   source: "sample" | "club-locker";
+  refreshHealth: RefreshHealth;
 };
+
+export type RefreshHealth = {
+  consecutiveFailures: number;
+  alertThreshold: number;
+  lastFailureAt: string | null;
+  alertSentAt: string | null;
+};
+
+export function clearRefreshFailures(
+  state: TrackerState,
+  alertThreshold: number,
+): TrackerState {
+  return {
+    ...state,
+    refreshHealth: {
+      consecutiveFailures: 0,
+      alertThreshold,
+      lastFailureAt: null,
+      alertSentAt: null,
+    },
+  };
+}
+
+export function recordRefreshFailure(
+  state: TrackerState,
+  alertThreshold: number,
+  failedAt = new Date().toISOString(),
+): TrackerState {
+  return {
+    ...state,
+    refreshHealth: {
+      consecutiveFailures: state.refreshHealth.consecutiveFailures + 1,
+      alertThreshold,
+      lastFailureAt: failedAt,
+      alertSentAt: state.refreshHealth.alertSentAt,
+    },
+  };
+}
 
 export type ClubLockerMatch = {
   externalId: string;
@@ -193,8 +232,12 @@ export async function refreshTrackerState(
   loadState: () => Promise<TrackerState>,
   loadFeed: () => Promise<ClubLockerFeed>,
   persistState: (state: TrackerState) => Promise<void>,
+  alertThreshold = 3,
 ): Promise<TrackerState> {
-  const state = mergeClubLockerFeed(await loadState(), await loadFeed());
+  const state = clearRefreshFailures(
+    mergeClubLockerFeed(await loadState(), await loadFeed()),
+    alertThreshold,
+  );
   await persistState(state);
   return state;
 }

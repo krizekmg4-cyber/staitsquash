@@ -100,11 +100,23 @@ export const TrackerStateSource = {
   'club-locker': 'club-locker',
 } as const;
 
+export interface RefreshHealth {
+  /** @minimum 0 */
+  consecutiveFailures: number;
+  /** @minimum 1 */
+  alertThreshold: number;
+  /** @nullable */
+  lastFailureAt: string | null;
+  /** @nullable */
+  alertSentAt: string | null;
+}
+
 export interface TrackerState {
   players: Player[];
   coaches: Coach[];
   matches: Match[];
   lastUpdatedAt: string;
   source: TrackerStateSource;
+  refreshHealth: RefreshHealth;
 }
 

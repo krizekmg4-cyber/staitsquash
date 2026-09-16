@@ -190,7 +190,7 @@ components:
         result: { type: ["string", "null"] }
     TrackerState:
       type: object
-      required: [players, coaches, matches, lastUpdatedAt, source]
+      required: [players, coaches, matches, lastUpdatedAt, source, refreshHealth]
       properties:
         players:
           type: array
@@ -208,4 +208,22 @@ components:
         source:
           type: string
           enum: [sample, club-locker]
+        refreshHealth:
+          $ref: "#/components/schemas/RefreshHealth"
+    RefreshHealth:
+      type: object
+      required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt]
+      properties:
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+        alertThreshold:
+          type: integer
+          minimum: 1
+        lastFailureAt:
+          type: ["string", "null"]
+          format: date-time
+        alertSentAt:
+          type: ["string", "null"]
+          format: date-time
 
