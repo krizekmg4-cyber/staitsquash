@@ -351,7 +351,7 @@ type TrackerRouterDependencies = {
   getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
   mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
-  objectStorage?: Pick<ObjectStorageService, "saveObject">;
+  objectStorage?: Pick<ObjectStorageService, "saveObject" | "getObject" | "deleteObject">;
   authorizeStaff?: RequestHandler;
 };
 
@@ -517,18 +517,32 @@ export function createTrackerRouter(
       return;
     }
 
-    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+    const saved = await coordinateMutation(async (loadLockedState, saveLockedState) => {
       const state = cloneTrackerState(await loadLockedState());
       const match = state.matches.find((item) => item.id === params.data.matchId);
       if (!match) {
         res.status(404).json({ error: "Match not found" });
-        return;
+        return null;
       }
       if (match.status !== "completed") {
         res.status(400).json({ error: "Reports can only be added to completed matches" });
-        return;
+        return null;
       }
 
+      const previousAudioPath = match.report?.audioPath ?? null;
+      const nextAudioPath = body.data.audioPath ?? previousAudioPath;
+      if (nextAudioPath && nextAudioPath !== previousAudioPath) {
+        try {
+          await objectStorage.getObject(nextAudioPath);
+        } catch (error) {
+          req.log.error(
+            { err: error, objectPath: nextAudioPath, matchId: params.data.matchId },
+            "Could not verify replacement coach voice note",
+          );
+          res.status(400).json({ error: "The replacement voice note is no longer available" });
+          return null;
+        }
+      }
       match.report = {
         matchId: match.id,
         observations: body.data.observations,
@@ -538,8 +552,35 @@ export function createTrackerRouter(
       };
       state.lastUpdatedAt = new Date().toISOString();
       await saveLockedState(state);
-      res.json(SaveCoachReportResponse.parse(match.report));
+      return {
+        report: SaveCoachReportResponse.parse(match.report),
+        replacedAudioPath:
+          previousAudioPath && previousAudioPath !== match.report.audioPath
+            ? previousAudioPath
+            : null,
+      };
     });
+    if (!saved) return;
+
+    if (saved.replacedAudioPath) {
+      await coordinateMutation(async (loadLockedState) => {
+        const currentState = await loadLockedState();
+        const isStillReferenced = currentState.matches.some(
+          (match) => match.report?.audioPath === saved.replacedAudioPath,
+        );
+        if (isStillReferenced) return;
+
+        try {
+          await objectStorage.deleteObject(saved.replacedAudioPath!);
+        } catch (error) {
+          req.log.error(
+            { err: error, objectPath: saved.replacedAudioPath, matchId: params.data.matchId },
+            "Could not remove replaced coach voice note",
+          );
+        }
+      });
+    }
+    res.json(saved.report);
   });
 
   router.post(

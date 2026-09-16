@@ -593,6 +593,11 @@ test("overlapping match edit and report save preserve both changes", async () =>
         }
         state = structuredClone(next);
       },
+      objectStorage: {
+        saveObject: async () => undefined,
+        getObject: async () => ({}) as never,
+        deleteObject: async () => undefined,
+      },
       authorizeStaff: (_req, _res, next) => next(),
     }),
   );
@@ -772,6 +777,10 @@ test("coach report audio upload stores bytes and returns its object path", async
       saveObject: async (path, bytes, contentType) => {
         saved.push({ path, bytes, contentType });
       },
+      getObject: async () => {
+        throw new Error("not used");
+      },
+      deleteObject: async () => undefined,
     },
     authorizeStaff: (_req, _res, next) => next(),
   }));
@@ -797,6 +806,238 @@ test("coach report audio upload stores bytes and returns its object path", async
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
+test("replacing report audio deletes the previous object after persistence", async () => {
+  const previousAudioPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const replacementAudioPath = "/objects/uploads/22222222-2222-4222-8222-222222222222";
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "completed-match",
+      observations: ["Old observation."],
+      transcript: null,
+      audioPath: previousAudioPath,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+  const events: string[] = [];
+  const storedObjects = new Set([previousAudioPath, replacementAudioPath]);
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = { error: () => undefined } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      events.push("persist");
+      Object.assign(state, structuredClone(next));
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async (path) => {
+        if (!storedObjects.has(path)) throw new Error("not found");
+        return {} as never;
+      },
+      deleteObject: async (path) => {
+        events.push(`delete:${path}`);
+        storedObjects.delete(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/matches/completed-match/report`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observations: ["New observation.", "Recovered to the T.", "Stayed composed."],
+        audioPath: replacementAudioPath,
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(events, ["persist", `delete:${previousAudioPath}`]);
+    assert.equal(state.matches[0]?.report?.audioPath, replacementAudioPath);
+
+    const staleResponse = await fetch(
+      `http://127.0.0.1:${address.port}/matches/completed-match/report`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          observations: ["Stale edit.", "Recovered to the T.", "Stayed composed."],
+          audioPath: previousAudioPath,
+        }),
+      },
+    );
+    assert.equal(staleResponse.status, 400);
+    assert.equal(state.matches[0]?.report?.audioPath, replacementAudioPath);
+    assert.equal(storedObjects.has(replacementAudioPath), true);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("failed report persistence retains the previous voice note", async () => {
+  const previousAudioPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "completed-match",
+      observations: ["Old observation."],
+      transcript: null,
+      audioPath: previousAudioPath,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+  const deleted: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => {
+      throw new Error("database unavailable");
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/matches/completed-match/report`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observations: ["New observation.", "Recovered to the T.", "Stayed composed."],
+        audioPath: "/objects/uploads/22222222-2222-4222-8222-222222222222",
+      }),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(deleted, []);
+    assert.equal(state.matches[0]?.report?.audioPath, previousAudioPath);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("voice note cleanup failure is logged without failing the saved report", async () => {
+  const previousAudioPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const replacementAudioPath = "/objects/uploads/22222222-2222-4222-8222-222222222222";
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "completed-match",
+      observations: ["Old observation."],
+      transcript: null,
+      audioPath: previousAudioPath,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+  const logged: Array<[unknown, string]> = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = {
+      error: (details: unknown, message: string) => logged.push([details, message]),
+    } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      Object.assign(state, structuredClone(next));
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async () => {
+        throw new Error("storage unavailable");
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/matches/completed-match/report`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observations: ["New observation.", "Recovered to the T.", "Stayed composed."],
+        audioPath: replacementAudioPath,
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(state.matches[0]?.report?.audioPath, replacementAudioPath);
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0]?.[1], "Could not remove replaced coach voice note");
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
     );
   }
 });

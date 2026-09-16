@@ -47,6 +47,13 @@ export class ObjectStorageService {
     await file.save(bytes, { contentType, resumable: false });
   }
 
+  async deleteObject(objectPath: string): Promise<void> {
+    if (!/^\/objects\/uploads\/[0-9a-f-]+$/.test(objectPath)) throw new Error("Invalid object path");
+    const { bucket, object: privateObject } = parseStoragePath(this.getPrivateDir());
+    const file = client.bucket(bucket).file(`${privateObject}/${objectPath.slice("/objects/".length)}`);
+    await file.delete({ ignoreNotFound: true });
+  }
+
   async stream(file: File, res: import("express").Response): Promise<void> {
     const [metadata] = await file.getMetadata();
     res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
