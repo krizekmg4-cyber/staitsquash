@@ -155,6 +155,58 @@ test("removes missing upcoming matches but retains completed and reported matche
   );
 });
 
+test("rejects incoming matches that overlap locally retained matches", () => {
+  const retainedMatches = [
+    storedMatch("local", { externalId: null }),
+    storedMatch("completed", { status: "completed" }),
+    storedMatch("reported", {
+      report: {
+        matchId: "stored-reported",
+        observations: ["Good recovery"],
+        transcript: null,
+        updatedAt: "2026-09-16T18:00:00Z",
+      },
+    }),
+  ];
+
+  for (const retained of retainedMatches) {
+    const state = stateWith(retained);
+    const snapshot = structuredClone(state);
+
+    assert.throws(
+      () =>
+        mergeClubLockerFeed(state, {
+          matches: [
+            incoming("new-match", {
+              startsAt: "2026-09-16T15:00:00-04:00",
+              endsAt: "2026-09-16T15:45:00-04:00",
+            }),
+          ],
+        }),
+      /overlapping a retained match for player ID "player-1"/,
+    );
+    assert.deepEqual(state, snapshot);
+  }
+});
+
+test("allows incoming matches back-to-back with locally retained matches", () => {
+  const retained = storedMatch("completed", { status: "completed" });
+
+  const result = mergeClubLockerFeed(stateWith(retained), {
+    matches: [
+      incoming("next-match", {
+        startsAt: retained.endsAt,
+        endsAt: "2026-09-16T16:00:00-04:00",
+      }),
+    ],
+  });
+
+  assert.deepEqual(
+    result.matches.map((match) => match.externalId),
+    ["completed", "next-match"],
+  );
+});
+
 test("rejects duplicate external match IDs", () => {
   assert.throws(
     () =>
@@ -261,6 +313,35 @@ test("invalid feeds never persist a replacement state", async () => {
 
   assert.equal(persisted, false);
   assert.equal(original.matches[0]?.opponent, "Original opponent");
+});
+
+test("retained-match overlaps never mutate or persist tracker state", async () => {
+  const original = stateWith(
+    storedMatch("completed", { status: "completed" }),
+  );
+  const snapshot = structuredClone(original);
+  let persisted = false;
+
+  await assert.rejects(
+    refreshTrackerState(
+      async () => original,
+      async () => ({
+        matches: [
+          incoming("new-match", {
+            startsAt: "2026-09-16T15:00:00-04:00",
+            endsAt: "2026-09-16T15:45:00-04:00",
+          }),
+        ],
+      }),
+      async () => {
+        persisted = true;
+      },
+    ),
+    /overlapping a retained match/,
+  );
+
+  assert.equal(persisted, false);
+  assert.deepEqual(original, snapshot);
 });
 
 test("schedule and player conflicts never change stored tracker state", async () => {

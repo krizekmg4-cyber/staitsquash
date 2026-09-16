@@ -258,6 +258,27 @@ export function mergeClubLockerFeed(
     feed.matches.map((match) => [match.externalId, match]),
   );
   const importedIds = new Set(feed.matches.map((match) => match.externalId));
+  const locallyRetained = state.matches.filter(
+    (match) =>
+      (match.externalId === null || !importedIds.has(match.externalId)) &&
+      (match.externalId === null ||
+        match.status === "completed" ||
+        match.report !== null),
+  );
+  for (const incoming of feed.matches) {
+    const overlapsRetainedMatch = locallyRetained.some(
+      (retainedMatch) =>
+        retainedMatch.playerId === incoming.playerId &&
+        Date.parse(incoming.startsAt) < Date.parse(retainedMatch.endsAt) &&
+        Date.parse(retainedMatch.startsAt) < Date.parse(incoming.endsAt),
+    );
+    if (overlapsRetainedMatch) {
+      throw new Error(
+        `Club Locker returned a match overlapping a retained match for player ID "${incoming.playerId}"`,
+      );
+    }
+  }
+
   const retained = state.matches
     .filter(
       (match) =>
