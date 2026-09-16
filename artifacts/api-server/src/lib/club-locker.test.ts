@@ -382,6 +382,85 @@ test("allows same-time matches across timezone offsets for different players", (
   assert.equal(feed.matches.length, 2);
 });
 
+test("allows back-to-back matches spanning a daylight-saving fall-back transition", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("before-fall-back", {
+        startsAt: "2026-11-01T01:15:00-04:00",
+        endsAt: "2026-11-01T01:15:00-05:00",
+      }),
+      incoming("after-fall-back", {
+        startsAt: "2026-11-01T01:15:00-05:00",
+        endsAt: "2026-11-01T02:00:00-05:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+  assert.equal(
+    Date.parse(feed.matches[0]!.endsAt),
+    Date.parse(feed.matches[1]!.startsAt),
+  );
+});
+
+test("allows back-to-back matches spanning a daylight-saving spring-forward transition", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("before-spring-forward", {
+        startsAt: "2026-03-08T01:15:00-05:00",
+        endsAt: "2026-03-08T03:15:00-04:00",
+      }),
+      incoming("after-spring-forward", {
+        startsAt: "2026-03-08T03:15:00-04:00",
+        endsAt: "2026-03-08T04:00:00-04:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+  assert.equal(
+    Date.parse(feed.matches[0]!.endsAt),
+    Date.parse(feed.matches[1]!.startsAt),
+  );
+});
+
+test("rejects a real overlap during the repeated daylight-saving hour", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [
+          incoming("spans-fall-back", {
+            startsAt: "2026-11-01T01:30:00-04:00",
+            endsAt: "2026-11-01T01:30:00-05:00",
+          }),
+          incoming("repeated-hour-overlap", {
+            startsAt: "2026-11-01T01:15:00-05:00",
+            endsAt: "2026-11-01T02:00:00-05:00",
+          }),
+        ],
+      }),
+    /overlapping matches for player ID "player-1"/,
+  );
+});
+
+test("keeps different-player matches independent across daylight-saving fall-back", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("spans-fall-back", {
+        startsAt: "2026-11-01T01:30:00-04:00",
+        endsAt: "2026-11-01T01:30:00-05:00",
+      }),
+      incoming("other-player-repeated-hour", {
+        playerId: "player-2",
+        startsAt: "2026-11-01T01:15:00-05:00",
+        endsAt: "2026-11-01T02:00:00-05:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+});
+
 test("allows back-to-back matches and overlaps for different players", () => {
   const feed = parseClubLockerFeed({
     matches: [
