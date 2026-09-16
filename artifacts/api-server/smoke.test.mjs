@@ -117,3 +117,28 @@ test("fails on startup timeout and removes the child process", async () => {
   assertProcessGone(childPid);
   assert.equal(configuredPortServer.listening, true);
 });
+
+test("force kills a child that ignores SIGTERM after startup timeout", async () => {
+  const entryPath = await createFixture(
+    "ignores-sigterm",
+    `
+      process.on("SIGTERM", () => {});
+      setInterval(() => {}, 1_000);
+    `,
+  );
+  let childPid;
+
+  await assert.rejects(
+    runBundleSmoke({
+      entryPath,
+      startupTimeoutMs: 200,
+      shutdownTimeoutMs: 50,
+      onSpawn(child) {
+        childPid = child.pid;
+      },
+    }),
+    /did not start within 200ms/,
+  );
+  assertProcessGone(childPid);
+  assert.equal(configuredPortServer.listening, true);
+});
