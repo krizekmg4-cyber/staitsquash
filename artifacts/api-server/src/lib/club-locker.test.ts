@@ -175,6 +175,44 @@ test("rejects matches whose end time is not after the start time", () => {
   }
 });
 
+test("rejects overlapping matches for the same player", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [
+          incoming("later", {
+            startsAt: "2026-09-16T15:00:00-04:00",
+            endsAt: "2026-09-16T15:45:00-04:00",
+          }),
+          incoming("earlier", {
+            startsAt: "2026-09-16T14:30:00-04:00",
+            endsAt: "2026-09-16T15:15:00-04:00",
+          }),
+        ],
+      }),
+    /overlapping matches for player ID "player-1"/,
+  );
+});
+
+test("allows back-to-back matches and overlaps for different players", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("first"),
+      incoming("back-to-back", {
+        startsAt: "2026-09-16T15:15:00-04:00",
+        endsAt: "2026-09-16T16:00:00-04:00",
+      }),
+      incoming("other-player", {
+        playerId: "player-2",
+        startsAt: "2026-09-16T14:45:00-04:00",
+        endsAt: "2026-09-16T15:30:00-04:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 3);
+});
+
 test("rejects conflicting duplicate player IDs", () => {
   assert.throws(
     () =>
@@ -239,6 +277,17 @@ test("schedule and player conflicts never change stored tracker state", async ()
       players: [
         { id: "player-1", name: "Player One" },
         { id: "player-1", name: "Different Player" },
+      ],
+    },
+    {
+      matches: [
+        incoming("existing", {
+          opponent: "Changed opponent",
+        }),
+        incoming("overlap", {
+          startsAt: "2026-09-16T15:00:00-04:00",
+          endsAt: "2026-09-16T15:45:00-04:00",
+        }),
       ],
     },
   ];

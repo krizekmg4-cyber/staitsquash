@@ -181,6 +181,27 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
     };
   });
 
+  const matchesByPlayer = new Map<string, ClubLockerMatch[]>();
+  for (const match of matches) {
+    const playerMatches = matchesByPlayer.get(match.playerId) ?? [];
+    playerMatches.push(match);
+    matchesByPlayer.set(match.playerId, playerMatches);
+  }
+  for (const [playerId, playerMatches] of matchesByPlayer) {
+    playerMatches.sort(
+      (left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt),
+    );
+    for (let index = 1; index < playerMatches.length; index += 1) {
+      const previous = playerMatches[index - 1];
+      const current = playerMatches[index];
+      if (Date.parse(current.startsAt) < Date.parse(previous.endsAt)) {
+        throw new Error(
+          `Club Locker returned overlapping matches for player ID "${playerId}"`,
+        );
+      }
+    }
+  }
+
   const playerNamesById = new Map<string, string>();
   const players = Array.isArray(raw.players)
     ? raw.players.map((player, index) => {
