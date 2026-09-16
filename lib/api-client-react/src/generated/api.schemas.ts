@@ -5,6 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface TrackerLogoDeletion {
+  /** @pattern ^/objects/uploads/logos/[0-9a-f-]+$ */
+  objectPath: string;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -43,13 +48,13 @@ export interface TrackerBranding {
   /**
      * @maxLength 100
      * @nullable
-     * @pattern ^/objects/uploads/[0-9a-f-]+$
+     * @pattern ^/objects/uploads/(?:logos/)?[0-9a-f-]+$
      */
   logoPath: string | null;
 }
 
 export interface TrackerLogo {
-  /** @pattern ^/objects/uploads/[0-9a-f-]+$ */
+  /** @pattern ^/objects/uploads/logos/[0-9a-f-]+$ */
   objectPath: string;
 }
 

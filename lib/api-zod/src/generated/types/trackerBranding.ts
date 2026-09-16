@@ -15,7 +15,7 @@ export interface TrackerBranding {
   /**
      * @maxLength 100
      * @nullable
-     * @pattern ^/objects/uploads/[0-9a-f-]+$
+     * @pattern ^/objects/uploads/(?:logos/)?[0-9a-f-]+$
      */
   logoPath: string | null;
 }

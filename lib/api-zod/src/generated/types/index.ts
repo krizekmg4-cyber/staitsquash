@@ -22,6 +22,7 @@ export * from './refreshHealth';
 export * from './storedObject';
 export * from './trackerBranding';
 export * from './trackerLogo';
+export * from './trackerLogoDeletion';
 export * from './trackerSettingsInput';
 export * from './trackerState';
 export * from './trackerStateSource';

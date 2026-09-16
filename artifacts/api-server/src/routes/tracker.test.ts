@@ -1398,6 +1398,302 @@ test("independent API instances coordinate overlapping tracker writes", async ()
   }
 });
 
+test("saving tracker settings deletes the replaced logo only after persistence", async () => {
+  const previousLogoPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const replacementLogoPath = "/objects/uploads/logos/22222222-2222-4222-8222-222222222222";
+  let state = healthyState();
+  state.branding = { name: "StaitSquash", logoPath: previousLogoPath };
+  const events: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      events.push("persist");
+      state = structuredClone(next);
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        events.push(`delete:${path}`);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/tracker/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coaches: state.coaches,
+        branding: { name: "Club", logoPath: replacementLogoPath },
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(events, ["persist", `delete:${previousLogoPath}`]);
+    assert.equal(state.branding?.logoPath, replacementLogoPath);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("replaced logo cleanup rechecks state after a concurrent settings save", async () => {
+  const originalLogoPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const replacementLogoPath = "/objects/uploads/logos/22222222-2222-4222-8222-222222222222";
+  let state = healthyState();
+  state.branding = { name: "StaitSquash", logoPath: originalLogoPath };
+  let releaseFirstSave!: () => void;
+  const firstSaveBlocked = new Promise<void>((resolve) => {
+    releaseFirstSave = resolve;
+  });
+  let markFirstSaveStarted!: () => void;
+  const firstSaveStarted = new Promise<void>((resolve) => {
+    markFirstSaveStarted = resolve;
+  });
+  let saveCount = 0;
+  const deleted: string[] = [];
+  let markSecondRequestEntered!: () => void;
+  const secondRequestEntered = new Promise<void>((resolve) => {
+    markSecondRequestEntered = resolve;
+  });
+  let settingsRequestCount = 0;
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    if (req.method === "PUT" && req.path === "/tracker/settings") {
+      settingsRequestCount += 1;
+      if (settingsRequestCount === 2) markSecondRequestEntered();
+    }
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      saveCount += 1;
+      if (saveCount === 1) {
+        markFirstSaveStarted();
+        await firstSaveBlocked;
+      }
+      state = structuredClone(next);
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const saveSettings = (logoPath: string) => fetch(
+    `http://127.0.0.1:${address.port}/tracker/settings`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coaches: state.coaches,
+        branding: { name: "Club", logoPath },
+      }),
+    },
+  );
+  try {
+    const firstSave = saveSettings(replacementLogoPath);
+    await firstSaveStarted;
+    const concurrentSave = saveSettings(originalLogoPath);
+    await secondRequestEntered;
+    releaseFirstSave();
+    assert.equal((await firstSave).status, 200);
+    assert.equal((await concurrentSave).status, 200);
+    assert.equal(state.branding?.logoPath, originalLogoPath);
+    assert.deepEqual(deleted, [replacementLogoPath]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("unused logo cleanup retains the logo referenced by saved settings", async () => {
+  const referencedLogoPath = "/objects/uploads/logos/11111111-1111-4111-8111-111111111111";
+  const unusedLogoPath = "/objects/uploads/logos/22222222-2222-4222-8222-222222222222";
+  const state = healthyState();
+  state.branding = { name: "StaitSquash", logoPath: referencedLogoPath };
+  const deleted: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => undefined,
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const cleanup = (objectPath: string) => fetch(`http://127.0.0.1:${address.port}/tracker/logo`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ objectPath }),
+  });
+  try {
+    assert.equal((await cleanup(referencedLogoPath)).status, 204);
+    assert.deepEqual(deleted, []);
+    assert.equal((await cleanup(unusedLogoPath)).status, 204);
+    assert.deepEqual(deleted, [unusedLogoPath]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("replaced legacy logo cleanup retains an object still referenced by a coach report", async () => {
+  const sharedObjectPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  let state = healthyState();
+  state.branding = { name: "StaitSquash", logoPath: sharedObjectPath };
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "completed-match",
+      observations: ["First.", "Second.", "Third."],
+      transcript: null,
+      audioPath: sharedObjectPath,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+  const deleted: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      state = structuredClone(next);
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/tracker/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coaches: state.coaches,
+        branding: {
+          name: "Club",
+          logoPath: "/objects/uploads/logos/22222222-2222-4222-8222-222222222222",
+        },
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(deleted, []);
+    assert.equal(state.matches[0]?.report?.audioPath, sharedObjectPath);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("failed tracker settings persistence retains the previously saved logo", async () => {
+  const previousLogoPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const state = healthyState();
+  state.branding = { name: "StaitSquash", logoPath: previousLogoPath };
+  const deleted: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => {
+      throw new Error("database unavailable");
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/tracker/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        coaches: state.coaches,
+        branding: {
+          name: "Club",
+          logoPath: "/objects/uploads/logos/22222222-2222-4222-8222-222222222222",
+        },
+      }),
+    });
+    assert.equal(response.status, 500);
+    assert.deepEqual(deleted, []);
+    assert.equal(state.branding.logoPath, previousLogoPath);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
 test("coach report audio upload stores bytes and returns its object path", async () => {
   const state = healthyState();
   state.matches = [{

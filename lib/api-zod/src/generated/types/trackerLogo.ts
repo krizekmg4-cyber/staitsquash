@@ -7,6 +7,6 @@
  */
 
 export interface TrackerLogo {
-  /** @pattern ^/objects/uploads/[0-9a-f-]+$ */
+  /** @pattern ^/objects/uploads/logos/[0-9a-f-]+$ */
   objectPath: string;
 }

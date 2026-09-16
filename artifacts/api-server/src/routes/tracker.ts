@@ -2,6 +2,7 @@ import express, { Router, type IRouter, type RequestHandler } from "express";
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  DeleteUnusedTrackerLogoBody,
   GetTrackerResponse,
   PersistedTrackerState,
   GetTrackerHealthResponse,
@@ -553,6 +554,11 @@ function trackerHealthResponse(state: ReadonlyTrackerState) {
   };
 }
 
+function isObjectPathReferenced(state: ReadonlyTrackerState, objectPath: string): boolean {
+  return (state.branding?.logoPath ?? null) === objectPath ||
+    state.matches.some((match) => match.report?.audioPath === objectPath);
+}
+
 export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = {
     getState,
@@ -689,8 +695,9 @@ export function createTrackerRouter(
       res.status(400).json({ error: body.error.message });
       return;
     }
-    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+    const replacedLogoPath = await coordinateMutation(async (loadLockedState, saveLockedState) => {
       const state = cloneTrackerState(await loadLockedState());
+      const previousLogoPath = state.branding?.logoPath ?? null;
       const coaches = [...body.data.coaches];
       if (!coaches.some((coach) => coach.id === "unassigned")) {
         coaches.push({ id: "unassigned", name: "Unassigned" });
@@ -705,7 +712,21 @@ export function createTrackerRouter(
       state.lastUpdatedAt = new Date().toISOString();
       await saveLockedState(state);
       res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
+      return previousLogoPath && previousLogoPath !== state.branding.logoPath
+        ? previousLogoPath
+        : null;
     });
+    if (replacedLogoPath) {
+      await coordinateMutation(async (loadLockedState) => {
+        const currentState = await loadLockedState();
+        if (isObjectPathReferenced(currentState, replacedLogoPath)) return;
+        try {
+          await objectStorage.deleteObject(replacedLogoPath);
+        } catch (error) {
+          req.log.error({ err: error, objectPath: replacedLogoPath }, "Could not delete replaced tracker logo");
+        }
+      });
+    }
   });
 
   router.post(
@@ -718,7 +739,7 @@ export function createTrackerRouter(
         return;
       }
       try {
-        const objectPath = `/objects/uploads/${randomUUID()}`;
+        const objectPath = `/objects/uploads/logos/${randomUUID()}`;
         await objectStorage.saveObject(objectPath, req.body, req.get("content-type")!);
         res.json(UploadTrackerLogoResponse.parse({ objectPath }));
       } catch (error) {
@@ -727,6 +748,21 @@ export function createTrackerRouter(
       }
     },
   );
+
+  router.delete("/tracker/logo", authorizeStaff, async (req, res): Promise<void> => {
+    const body = DeleteUnusedTrackerLogoBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+    await coordinateMutation(async (loadLockedState) => {
+      const state = await loadLockedState();
+      if (!isObjectPathReferenced(state, body.data.objectPath)) {
+        await objectStorage.deleteObject(body.data.objectPath);
+      }
+      res.status(204).end();
+    });
+  });
 
   router.patch("/matches/:matchId", authorizeStaff, async (req, res): Promise<void> => {
     const params = UpdateMatchParams.safeParse(req.params);

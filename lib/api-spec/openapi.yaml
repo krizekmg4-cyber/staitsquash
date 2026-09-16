@@ -163,6 +163,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteUnusedTrackerLogo
+      tags: [tracker, storage]
+      summary: Delete an uploaded tracker logo that is not referenced by saved settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrackerLogoDeletion"
+      responses:
+        "204":
+          description: Unused logo deleted
+        "400":
+          description: Invalid object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /storage/objects/{objectPath}:
     get:
       operationId: getStorageObject
@@ -295,6 +314,13 @@ paths:
                 $ref: "#/components/schemas/ApiError"
 components:
   schemas:
+    TrackerLogoDeletion:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: '^/objects/uploads/logos/[0-9a-f-]+$'
     ApiError:
       type: object
       required: [error]
@@ -337,7 +363,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 80 }
         logoPath:
           type: ["string", "null"]
-          pattern: "^/objects/uploads/[0-9a-f-]+$"
+          pattern: "^/objects/uploads/(?:logos/)?[0-9a-f-]+$"
           maxLength: 100
     TrackerLogo:
       type: object
@@ -345,7 +371,7 @@ components:
       properties:
         objectPath:
           type: string
-          pattern: "^/objects/uploads/[0-9a-f-]+$"
+          pattern: "^/objects/uploads/logos/[0-9a-f-]+$"
     StoredObject:
       type: object
       required: [objectPath]

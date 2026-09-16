@@ -18,6 +18,8 @@ const client = new Storage({
 
 export class ObjectNotFoundError extends Error {}
 
+const OBJECT_PATH_PATTERN = /^\/objects\/uploads\/(?:logos\/)?[0-9a-f-]+$/;
+
 function parseStoragePath(value: string): { bucket: string; object: string } {
   const parts = value.replace(/^\/+/, "").split("/");
   if (parts.length < 2) throw new Error("Invalid App Storage path");
@@ -32,7 +34,7 @@ export class ObjectStorageService {
   }
 
   async getObject(objectPath: string): Promise<File> {
-    if (!/^\/objects\/uploads\/[0-9a-f-]+$/.test(objectPath)) throw new ObjectNotFoundError();
+    if (!OBJECT_PATH_PATTERN.test(objectPath)) throw new ObjectNotFoundError();
     const { bucket, object: privateObject } = parseStoragePath(this.getPrivateDir());
     const file = client.bucket(bucket).file(`${privateObject}/${objectPath.slice("/objects/".length)}`);
     const [exists] = await file.exists();
@@ -41,14 +43,14 @@ export class ObjectStorageService {
   }
 
   async saveObject(objectPath: string, bytes: Buffer, contentType: string): Promise<void> {
-    if (!/^\/objects\/uploads\/[0-9a-f-]+$/.test(objectPath)) throw new Error("Invalid object path");
+    if (!OBJECT_PATH_PATTERN.test(objectPath)) throw new Error("Invalid object path");
     const { bucket, object: privateObject } = parseStoragePath(this.getPrivateDir());
     const file = client.bucket(bucket).file(`${privateObject}/${objectPath.slice("/objects/".length)}`);
     await file.save(bytes, { contentType, resumable: false });
   }
 
   async deleteObject(objectPath: string): Promise<void> {
-    if (!/^\/objects\/uploads\/[0-9a-f-]+$/.test(objectPath)) throw new Error("Invalid object path");
+    if (!OBJECT_PATH_PATTERN.test(objectPath)) throw new Error("Invalid object path");
     const { bucket, object: privateObject } = parseStoragePath(this.getPrivateDir());
     const file = client.bucket(bucket).file(`${privateObject}/${objectPath.slice("/objects/".length)}`);
     await file.delete({ ignoreNotFound: true });

@@ -123,10 +123,12 @@ describe('tracker health polling', () => {
 describe('tracker logo settings', () => {
   let persistedTracker: typeof tracker;
   let uploadedPaths: string[];
+  let deletedPaths: string[];
 
   beforeEach(() => {
     persistedTracker = structuredClone(tracker);
-    uploadedPaths = ['/objects/uploads/logo-one', '/objects/uploads/logo-two'];
+    uploadedPaths = ['/objects/uploads/logos/logo-one', '/objects/uploads/logos/logo-two'];
+    deletedPaths = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.endsWith('/api/tracker/health')) {
@@ -139,6 +141,10 @@ describe('tracker logo settings', () => {
         const objectPath = uploadedPaths.shift();
         if (!objectPath) return Response.json({ error: 'No path' }, { status: 500 });
         return Response.json({ objectPath });
+      }
+      if (url.endsWith('/api/tracker/logo') && init?.method === 'DELETE') {
+        deletedPaths.push((JSON.parse(String(init.body)) as { objectPath: string }).objectPath);
+        return new Response(null, { status: 204 });
       }
       if (url.endsWith('/api/tracker/settings') && init?.method === 'PUT') {
         const body = JSON.parse(String(init.body)) as {
@@ -170,7 +176,7 @@ describe('tracker logo settings', () => {
     });
     await waitFor(() => expect(screen.getByAltText('Logo preview')).toHaveAttribute(
       'src',
-      '/api/storage/objects/uploads/logo-one',
+      '/api/storage/objects/uploads/logos/logo-one',
     ));
     fireEvent.click(screen.getByTestId('button-save-settings'));
     await screen.findByText('Settings saved');
@@ -179,7 +185,7 @@ describe('tracker logo settings', () => {
     const reloaded = render(<App />);
     await waitFor(() => expect(reloaded.getByRole('banner').querySelector('img')).toHaveAttribute(
       'src',
-      '/api/storage/objects/uploads/logo-one',
+      '/api/storage/objects/uploads/logos/logo-one',
     ));
     fireEvent.click(screen.getByTestId('button-settings'));
     fireEvent.change(screen.getByTestId('input-logo-file'), {
@@ -187,13 +193,13 @@ describe('tracker logo settings', () => {
     });
     await waitFor(() => expect(screen.getByAltText('Logo preview')).toHaveAttribute(
       'src',
-      '/api/storage/objects/uploads/logo-two',
+      '/api/storage/objects/uploads/logos/logo-two',
     ));
     fireEvent.click(screen.getByTestId('button-save-settings'));
     await screen.findByText('Settings saved');
     expect(reloaded.getByRole('banner').querySelector('img')).toHaveAttribute(
       'src',
-      '/api/storage/objects/uploads/logo-two',
+      '/api/storage/objects/uploads/logos/logo-two',
     );
 
     fireEvent.click(screen.getByTestId('button-settings'));
@@ -231,6 +237,79 @@ describe('tracker logo settings', () => {
       '/api/tracker/logo',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('deletes temporary logos when replaced or abandoned before settings are saved', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.change(screen.getByTestId('input-logo-file'), {
+      target: { files: [validPng('first.png')] },
+    });
+    await screen.findByAltText('Logo preview');
+
+    fireEvent.change(screen.getByTestId('input-logo-file'), {
+      target: { files: [validPng('second.png')] },
+    });
+    await waitFor(() => expect(deletedPaths).toContain('/objects/uploads/logos/logo-one'));
+
+    fireEvent.click(screen.getByTestId('button-close-modal'));
+    await waitFor(() => expect(deletedPaths).toEqual([
+      '/objects/uploads/logos/logo-one',
+      '/objects/uploads/logos/logo-two',
+    ]));
+    expect(persistedTracker.branding.logoPath).toBeNull();
+  });
+
+  it('cleans up an upload that finishes after the settings editor unmounts', async () => {
+    let finishUpload!: (response: Response) => void;
+    const pendingUpload = new Promise<Response>((resolve) => {
+      finishUpload = resolve;
+    });
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/tracker/logo') && init?.method === 'POST') {
+        return pendingUpload;
+      }
+      return defaultFetch(input, init);
+    });
+
+    const view = render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.change(screen.getByTestId('input-logo-file'), {
+      target: { files: [validPng('late.png')] },
+    });
+    expect(screen.getByTestId('button-close-modal')).toBeDisabled();
+
+    view.unmount();
+    finishUpload(Response.json({ objectPath: '/objects/uploads/logos/logo-late' }));
+    await waitFor(() => expect(deletedPaths).toContain('/objects/uploads/logos/logo-late'));
+  });
+
+  it('keeps settings open while a save is in flight', async () => {
+    let finishSave!: (response: Response) => void;
+    const pendingSave = new Promise<Response>((resolve) => {
+      finishSave = resolve;
+    });
+    const defaultFetch = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/tracker/settings') && init?.method === 'PUT') {
+        return pendingSave;
+      }
+      return defaultFetch(input, init);
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.click(screen.getByTestId('button-save-settings'));
+    await waitFor(() => expect(screen.getByTestId('button-close-modal')).toBeDisabled());
+    fireEvent.mouseDown(screen.getByTestId('modal-overlay'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    finishSave(Response.json(persistedTracker));
+    await screen.findByText('Settings saved');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows the public staff landing page when signed out', () => {

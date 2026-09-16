@@ -39,7 +39,7 @@ export const getTrackerResponseBrandingNameMax = 80;
 export const getTrackerResponseBrandingLogoPathMax = 100;
 
 
-export const getTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const getTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/(?:logos/)?[0-9a-f-]+$');
 
 
 export const GetTrackerResponse = zod.object({
@@ -128,7 +128,7 @@ export const getPlayerTrackerResponseBrandingNameMax = 80;
 export const getPlayerTrackerResponseBrandingLogoPathMax = 100;
 
 
-export const getPlayerTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const getPlayerTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/(?:logos/)?[0-9a-f-]+$');
 
 
 export const GetPlayerTrackerResponse = zod.object({
@@ -177,7 +177,7 @@ export const saveTrackerSettingsBodyBrandingNameMax = 80;
 export const saveTrackerSettingsBodyBrandingLogoPathMax = 100;
 
 
-export const saveTrackerSettingsBodyBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const saveTrackerSettingsBodyBrandingLogoPathRegExp = new RegExp('^/objects/uploads/(?:logos/)?[0-9a-f-]+$');
 
 
 export const SaveTrackerSettingsBody = zod.object({
@@ -210,7 +210,7 @@ export const saveTrackerSettingsResponseBrandingNameMax = 80;
 export const saveTrackerSettingsResponseBrandingLogoPathMax = 100;
 
 
-export const saveTrackerSettingsResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const saveTrackerSettingsResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/(?:logos/)?[0-9a-f-]+$');
 
 
 export const SaveTrackerSettingsResponse = zod.object({
@@ -283,12 +283,25 @@ export const RotatePlayerShareTokenResponse = zod.object({
 /**
  * @summary Validate and upload a tracker logo to App Storage
  */
-export const uploadTrackerLogoResponseObjectPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const uploadTrackerLogoResponseObjectPathRegExp = new RegExp('^/objects/uploads/logos/[0-9a-f-]+$');
 
 
 export const UploadTrackerLogoResponse = zod.object({
   "objectPath": zod.string().regex(uploadTrackerLogoResponseObjectPathRegExp)
 })
+
+
+/**
+ * @summary Delete an uploaded tracker logo that is not referenced by saved settings
+ */
+export const deleteUnusedTrackerLogoBodyObjectPathRegExp = new RegExp('^/objects/uploads/logos/[0-9a-f-]+$');
+
+
+export const DeleteUnusedTrackerLogoBody = zod.object({
+  "objectPath": zod.string().regex(deleteUnusedTrackerLogoBodyObjectPathRegExp)
+})
+
+export const DeleteUnusedTrackerLogoResponse = zod.void()
 
 
 /**
@@ -420,7 +433,7 @@ export const refreshTrackerResponseBrandingNameMax = 80;
 export const refreshTrackerResponseBrandingLogoPathMax = 100;
 
 
-export const refreshTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const refreshTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/(?:logos/)?[0-9a-f-]+$');
 
 
 export const RefreshTrackerResponse = zod.object({
