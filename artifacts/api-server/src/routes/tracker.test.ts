@@ -141,6 +141,73 @@ test("refresh route sends matching failure and recovery webhook payloads once", 
   }
 });
 
+test("refresh route succeeds while a recovery webhook is retried until delivered", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = {
+    scheduleUrl: process.env["CLUB_LOCKER_SCHEDULE_URL"],
+    webhookUrl: process.env["STAFF_ALERT_WEBHOOK_URL"],
+  };
+  const recovery = {
+    failedAttempts: 2,
+    outageStartedAt: "2026-09-16T11:50:00.000Z",
+    recoveredAt: "2026-09-16T12:00:00.000Z",
+    outageDurationMs: 10 * 60_000,
+  };
+  const state = healthyState();
+  state.refreshHealth.pendingRecovery = recovery;
+  const webhookPayloads: Record<string, unknown>[] = [];
+  let webhookFails = true;
+
+  process.env["CLUB_LOCKER_SCHEDULE_URL"] = "https://schedule.test/feed";
+  process.env["STAFF_ALERT_WEBHOOK_URL"] = "https://alerts.test/hook";
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://schedule.test/feed") {
+      return Response.json({ matches: [] });
+    }
+    if (url === "https://alerts.test/hook") {
+      webhookPayloads.push(JSON.parse(String(init?.body)));
+      return new Response(null, { status: webhookFails ? 503 : 204 });
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    await withTrackerServer(state, async (url) => {
+      const failedDelivery = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(failedDelivery.status, 200);
+      assert.equal(webhookPayloads.length, 1);
+      assert.equal(webhookPayloads[0]?.event, "club-locker-refresh-recovered");
+      assert.equal(webhookPayloads[0]?.failedAttempts, recovery.failedAttempts);
+
+      webhookFails = false;
+      const successfulRetry = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(successfulRetry.status, 200);
+      assert.equal(webhookPayloads.length, 2);
+      assert.deepEqual(webhookPayloads[1], webhookPayloads[0]);
+
+      const afterDelivery = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(afterDelivery.status, 200);
+      assert.equal(webhookPayloads.length, 2);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries({
+      CLUB_LOCKER_SCHEDULE_URL: originalEnvironment.scheduleUrl,
+      STAFF_ALERT_WEBHOOK_URL: originalEnvironment.webhookUrl,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("normal successful refresh sends no staff webhook", async () => {
   const originalFetch = globalThis.fetch;
   const originalScheduleUrl = process.env["CLUB_LOCKER_SCHEDULE_URL"];
