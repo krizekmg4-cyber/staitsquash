@@ -283,6 +283,60 @@ test("rejects overlapping matches for the same player", () => {
   );
 });
 
+test("allows back-to-back matches at an equivalent instant across timezone offsets", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("first", {
+        startsAt: "2026-09-16T14:30:00-04:00",
+        endsAt: "2026-09-16T15:15:00-04:00",
+      }),
+      incoming("back-to-back", {
+        startsAt: "2026-09-16T12:15:00-07:00",
+        endsAt: "2026-09-16T13:00:00-07:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+});
+
+test("rejects a one-second overlap across timezone offsets", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [
+          incoming("first", {
+            startsAt: "2026-09-16T14:30:00-04:00",
+            endsAt: "2026-09-16T15:15:00-04:00",
+          }),
+          incoming("overlap", {
+            startsAt: "2026-09-16T12:14:59-07:00",
+            endsAt: "2026-09-16T13:00:00-07:00",
+          }),
+        ],
+      }),
+    /overlapping matches for player ID "player-1"/,
+  );
+});
+
+test("allows same-time matches across timezone offsets for different players", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("first", {
+        startsAt: "2026-09-16T14:30:00-04:00",
+        endsAt: "2026-09-16T15:15:00-04:00",
+      }),
+      incoming("other-player", {
+        playerId: "player-2",
+        startsAt: "2026-09-16T11:30:00-07:00",
+        endsAt: "2026-09-16T12:15:00-07:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 2);
+});
+
 test("allows back-to-back matches and overlaps for different players", () => {
   const feed = parseClubLockerFeed({
     matches: [
