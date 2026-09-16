@@ -283,11 +283,11 @@ export function createTrackerRouter(
 ): IRouter {
   const router: IRouter = Router();
   const { getState: loadState, saveState: persistState } = dependencies;
-  let refreshQueue: Promise<void> = Promise.resolve();
+  let mutationQueue: Promise<void> = Promise.resolve();
 
-  function serializeRefresh<T>(operation: () => Promise<T>): Promise<T> {
-    const result = refreshQueue.then(operation, operation);
-    refreshQueue = result.then(
+  function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = mutationQueue.then(operation, operation);
+    mutationQueue = result.then(
       () => undefined,
       () => undefined,
     );
@@ -308,84 +308,90 @@ export function createTrackerRouter(
       res.status(400).json({ error: body.error.message });
       return;
     }
-    const state = await loadState();
-    const coaches = [...body.data.coaches];
-    if (!coaches.some((coach) => coach.id === "unassigned")) {
-      coaches.push({ id: "unassigned", name: "Unassigned" });
-    }
-    const coachIds = new Set(coaches.map((coach) => coach.id));
-    state.coaches = coaches;
-    state.matches = state.matches.map((match) => ({
-      ...match,
-      coachId: coachIds.has(match.coachId) ? match.coachId : "unassigned",
-    }));
-    state.branding = body.data.branding;
-    state.lastUpdatedAt = new Date().toISOString();
-    await persistState(state);
-    res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
+    await serializeMutation(async () => {
+      const state = await loadState();
+      const coaches = [...body.data.coaches];
+      if (!coaches.some((coach) => coach.id === "unassigned")) {
+        coaches.push({ id: "unassigned", name: "Unassigned" });
+      }
+      const coachIds = new Set(coaches.map((coach) => coach.id));
+      state.coaches = coaches;
+      state.matches = state.matches.map((match) => ({
+        ...match,
+        coachId: coachIds.has(match.coachId) ? match.coachId : "unassigned",
+      }));
+      state.branding = body.data.branding;
+      state.lastUpdatedAt = new Date().toISOString();
+      await persistState(state);
+      res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
+    });
   });
 
   router.patch("/matches/:matchId", async (req, res): Promise<void> => {
-  const params = UpdateMatchParams.safeParse(req.params);
-  const body = UpdateMatchBody.safeParse(req.body);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
+    const params = UpdateMatchParams.safeParse(req.params);
+    const body = UpdateMatchBody.safeParse(req.body);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
 
-  const state = await loadState();
-  const match = state.matches.find((item) => item.id === params.data.matchId);
-  if (!match) {
-    res.status(404).json({ error: "Match not found" });
-    return;
-  }
+    await serializeMutation(async () => {
+      const state = await loadState();
+      const match = state.matches.find((item) => item.id === params.data.matchId);
+      if (!match) {
+        res.status(404).json({ error: "Match not found" });
+        return;
+      }
 
-  Object.assign(match, body.data);
-  state.lastUpdatedAt = new Date().toISOString();
-  await persistState(state);
-  res.json(UpdateMatchResponse.parse(match));
+      Object.assign(match, body.data);
+      state.lastUpdatedAt = new Date().toISOString();
+      await persistState(state);
+      res.json(UpdateMatchResponse.parse(match));
+    });
   });
 
   router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
-  const params = SaveCoachReportParams.safeParse(req.params);
-  const body = SaveCoachReportBody.safeParse(req.body);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
+    const params = SaveCoachReportParams.safeParse(req.params);
+    const body = SaveCoachReportBody.safeParse(req.body);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
 
-  const state = await loadState();
-  const match = state.matches.find((item) => item.id === params.data.matchId);
-  if (!match) {
-    res.status(404).json({ error: "Match not found" });
-    return;
-  }
-  if (match.status !== "completed") {
-    res.status(400).json({ error: "Reports can only be added to completed matches" });
-    return;
-  }
+    await serializeMutation(async () => {
+      const state = await loadState();
+      const match = state.matches.find((item) => item.id === params.data.matchId);
+      if (!match) {
+        res.status(404).json({ error: "Match not found" });
+        return;
+      }
+      if (match.status !== "completed") {
+        res.status(400).json({ error: "Reports can only be added to completed matches" });
+        return;
+      }
 
-  match.report = {
-    matchId: match.id,
-    observations: body.data.observations,
-    transcript: body.data.transcript ?? null,
-    updatedAt: new Date().toISOString(),
-  };
-  state.lastUpdatedAt = new Date().toISOString();
-  await persistState(state);
-  res.json(SaveCoachReportResponse.parse(match.report));
+      match.report = {
+        matchId: match.id,
+        observations: body.data.observations,
+        transcript: body.data.transcript ?? null,
+        updatedAt: new Date().toISOString(),
+      };
+      state.lastUpdatedAt = new Date().toISOString();
+      await persistState(state);
+      res.json(SaveCoachReportResponse.parse(match.report));
+    });
   });
 
   router.post("/tracker/refresh", async (req, res): Promise<void> => {
-  await serializeRefresh(async () => {
+  await serializeMutation(async () => {
   const alertThreshold = getAlertThreshold();
   try {
     const previousState = await loadState();

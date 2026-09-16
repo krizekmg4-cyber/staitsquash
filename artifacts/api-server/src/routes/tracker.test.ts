@@ -400,6 +400,100 @@ test("overlapping refresh requests deliver a queued recovery exactly once", asyn
   }
 });
 
+test("overlapping match edit and report save preserve both changes", async () => {
+  let state = healthyState();
+  state.matches = [
+    {
+      id: "match-1",
+      externalId: null,
+      playerId: "player-1",
+      opponent: "Opponent",
+      startsAt: "2026-09-16T10:00:00.000Z",
+      endsAt: "2026-09-16T10:45:00.000Z",
+      venue: "Venue",
+      court: "Court 1",
+      coachId: "coach-1",
+      status: "completed",
+      result: "Won 3-1",
+      report: null,
+    },
+  ];
+
+  let releaseFirstSave!: () => void;
+  const firstSaveBlocked = new Promise<void>((resolve) => {
+    releaseFirstSave = resolve;
+  });
+  let markFirstSaveStarted!: () => void;
+  const firstSaveStarted = new Promise<void>((resolve) => {
+    markFirstSaveStarted = resolve;
+  });
+  let saveCount = 0;
+
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createTrackerRouter({
+      getState: async () => structuredClone(state),
+      saveState: async (next) => {
+        saveCount += 1;
+        if (saveCount === 1) {
+          markFirstSaveStarted();
+          await firstSaveBlocked;
+        }
+        state = structuredClone(next);
+      },
+    }),
+  );
+
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const url = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const edit = fetch(`${url}/matches/match-1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ court: "Court 2" }),
+    });
+    await firstSaveStarted;
+
+    const report = fetch(`${url}/matches/match-1/report`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        observations: [
+          "Controlled the middle well.",
+          "Consistently recovered to the T.",
+          "Kept good width under pressure.",
+        ],
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(saveCount, 1);
+
+    releaseFirstSave();
+    const responses = await Promise.all([edit, report]);
+    assert.deepEqual(responses.map((response) => response.status), [200, 200]);
+    assert.equal(saveCount, 2);
+    assert.equal(state.matches[0]?.court, "Court 2");
+    assert.equal(
+      state.matches[0]?.report?.observations[0],
+      "Controlled the middle well.",
+    );
+  } finally {
+    releaseFirstSave();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
 test("normal successful refresh sends no staff webhook", async () => {
   const originalFetch = globalThis.fetch;
   const originalScheduleUrl = process.env["CLUB_LOCKER_SCHEDULE_URL"];
