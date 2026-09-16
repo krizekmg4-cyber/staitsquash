@@ -264,6 +264,49 @@ test("rejects matches whose end time is not after the start time", () => {
   }
 });
 
+test("rejects zero-length matches expressed with different timezone offsets", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [
+          incoming("zero-length-cross-offset", {
+            startsAt: "2026-09-16T14:30:00-04:00",
+            endsAt: "2026-09-16T11:30:00-07:00",
+          }),
+        ],
+      }),
+    /must end after it starts/,
+  );
+});
+
+test("rejects a negative one-second duration across timezone offsets", () => {
+  assert.throws(
+    () =>
+      parseClubLockerFeed({
+        matches: [
+          incoming("negative-cross-offset", {
+            startsAt: "2026-09-16T14:30:00-04:00",
+            endsAt: "2026-09-16T11:29:59-07:00",
+          }),
+        ],
+      }),
+    /must end after it starts/,
+  );
+});
+
+test("allows a positive duration across timezone offsets", () => {
+  const feed = parseClubLockerFeed({
+    matches: [
+      incoming("positive-cross-offset", {
+        startsAt: "2026-09-16T14:30:00-04:00",
+        endsAt: "2026-09-16T11:30:01-07:00",
+      }),
+    ],
+  });
+
+  assert.equal(feed.matches.length, 1);
+});
+
 test("rejects overlapping matches for the same player", () => {
   assert.throws(
     () =>
