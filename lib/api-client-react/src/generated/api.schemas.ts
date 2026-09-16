@@ -30,10 +30,16 @@ export interface TrackerBranding {
      */
   name: string;
   /**
-     * @maxLength 2000
+     * @maxLength 100
      * @nullable
+     * @pattern ^/objects/uploads/[0-9a-f-]+$
      */
-  logoUrl: string | null;
+  logoPath: string | null;
+}
+
+export interface TrackerLogo {
+  /** @pattern ^/objects/uploads/[0-9a-f-]+$ */
+  objectPath: string;
 }
 
 export interface TrackerSettingsInput {

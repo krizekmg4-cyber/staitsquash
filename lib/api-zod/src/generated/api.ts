@@ -30,8 +30,10 @@ export const getTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
 
 export const getTrackerResponseBrandingNameMax = 80;
 
-export const getTrackerResponseBrandingLogoUrlMax = 2000;
+export const getTrackerResponseBrandingLogoPathMax = 100;
 
+
+export const getTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const GetTrackerResponse = zod.object({
@@ -73,7 +75,7 @@ export const GetTrackerResponse = zod.object({
 }),
   "branding": zod.object({
   "name": zod.string().min(1).max(getTrackerResponseBrandingNameMax),
-  "logoUrl": zod.string().max(getTrackerResponseBrandingLogoUrlMax).nullable()
+  "logoPath": zod.string().max(getTrackerResponseBrandingLogoPathMax).regex(getTrackerResponseBrandingLogoPathRegExp).nullable()
 })
 })
 
@@ -103,8 +105,10 @@ export const GetTrackerHealthResponse = zod.object({
 
 export const saveTrackerSettingsBodyBrandingNameMax = 80;
 
-export const saveTrackerSettingsBodyBrandingLogoUrlMax = 2000;
+export const saveTrackerSettingsBodyBrandingLogoPathMax = 100;
 
+
+export const saveTrackerSettingsBodyBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const SaveTrackerSettingsBody = zod.object({
@@ -114,7 +118,7 @@ export const SaveTrackerSettingsBody = zod.object({
 })).min(1),
   "branding": zod.object({
   "name": zod.string().min(1).max(saveTrackerSettingsBodyBrandingNameMax),
-  "logoUrl": zod.string().max(saveTrackerSettingsBodyBrandingLogoUrlMax).nullable()
+  "logoPath": zod.string().max(saveTrackerSettingsBodyBrandingLogoPathMax).regex(saveTrackerSettingsBodyBrandingLogoPathRegExp).nullable()
 })
 })
 
@@ -128,8 +132,10 @@ export const saveTrackerSettingsResponseRefreshHealthPendingRecoveryNoticesMin =
 
 export const saveTrackerSettingsResponseBrandingNameMax = 80;
 
-export const saveTrackerSettingsResponseBrandingLogoUrlMax = 2000;
+export const saveTrackerSettingsResponseBrandingLogoPathMax = 100;
 
+
+export const saveTrackerSettingsResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const SaveTrackerSettingsResponse = zod.object({
@@ -171,9 +177,30 @@ export const SaveTrackerSettingsResponse = zod.object({
 }),
   "branding": zod.object({
   "name": zod.string().min(1).max(saveTrackerSettingsResponseBrandingNameMax),
-  "logoUrl": zod.string().max(saveTrackerSettingsResponseBrandingLogoUrlMax).nullable()
+  "logoPath": zod.string().max(saveTrackerSettingsResponseBrandingLogoPathMax).regex(saveTrackerSettingsResponseBrandingLogoPathRegExp).nullable()
 })
 })
+
+
+/**
+ * @summary Validate and upload a tracker logo to App Storage
+ */
+export const uploadTrackerLogoResponseObjectPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+
+
+export const UploadTrackerLogoResponse = zod.object({
+  "objectPath": zod.string().regex(uploadTrackerLogoResponseObjectPathRegExp)
+})
+
+
+/**
+ * @summary Serve an uploaded object from App Storage
+ */
+export const GetStorageObjectParams = zod.object({
+  "objectPath": zod.coerce.string()
+})
+
+export const GetStorageObjectResponse = zod.unknown()
 
 
 /**
@@ -265,8 +292,10 @@ export const refreshTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
 
 export const refreshTrackerResponseBrandingNameMax = 80;
 
-export const refreshTrackerResponseBrandingLogoUrlMax = 2000;
+export const refreshTrackerResponseBrandingLogoPathMax = 100;
 
+
+export const refreshTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
 
 
 export const RefreshTrackerResponse = zod.object({
@@ -308,7 +337,7 @@ export const RefreshTrackerResponse = zod.object({
 }),
   "branding": zod.object({
   "name": zod.string().min(1).max(refreshTrackerResponseBrandingNameMax),
-  "logoUrl": zod.string().max(refreshTrackerResponseBrandingLogoUrlMax).nullable()
+  "logoPath": zod.string().max(refreshTrackerResponseBrandingLogoPathMax).regex(refreshTrackerResponseBrandingLogoPathRegExp).nullable()
 })
 })
 

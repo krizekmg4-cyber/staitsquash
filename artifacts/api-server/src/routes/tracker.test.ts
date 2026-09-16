@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
-import { createTrackerRouter } from "./tracker.ts";
+import { createTrackerRouter, isLogoImage } from "./tracker.ts";
 import type { TrackerState } from "../lib/club-locker.ts";
 
 const healthyState = (): TrackerState => ({
@@ -18,6 +18,15 @@ const healthyState = (): TrackerState => ({
     alertSentAt: null,
     pendingRecoveries: [],
   },
+});
+
+test("logo validation checks actual bytes rather than claimed MIME type", () => {
+  assert.equal(isLogoImage(Buffer.from("not an image"), "image/png"), false);
+  assert.equal(
+    isLogoImage(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), "image/png"),
+    true,
+  );
+  assert.equal(isLogoImage(Buffer.alloc(5 * 1024 * 1024 + 1), "image/png"), false);
 });
 
 async function withTrackerServer(

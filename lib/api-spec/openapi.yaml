@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: tracker
     description: Tournament tracker operations
+  - name: storage
+    description: Protected App Storage operations
 paths:
   /healthz:
     get:
@@ -68,6 +70,74 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrackerState"
+  /tracker/logo:
+    post:
+      operationId: uploadTrackerLogo
+      tags: [tracker, storage]
+      summary: Validate and upload a tracker logo to App Storage
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+          image/gif:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Stored object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerLogo"
+        "400":
+          description: Invalid logo image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Logo exceeds 5 MB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /storage/objects/{objectPath}:
+    get:
+      operationId: getStorageObject
+      tags: [storage]
+      summary: Serve an uploaded object from App Storage
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stored object bytes
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Object not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /matches/{matchId}:
     patch:
       operationId: updateMatch
@@ -162,10 +232,20 @@ components:
         name: { type: string }
     TrackerBranding:
       type: object
-      required: [name, logoUrl]
+      required: [name, logoPath]
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
-        logoUrl: { type: ["string", "null"], maxLength: 2000 }
+        logoPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
+          maxLength: 100
+    TrackerLogo:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
     TrackerSettingsInput:
       type: object
       required: [coaches, branding]

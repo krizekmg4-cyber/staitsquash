@@ -373,7 +373,7 @@ test("loaded tracker snapshots are deeply frozen at runtime", () => {
       updatedAt: "2026-09-16T18:00:00Z",
     },
   }));
-  loaded.branding = { name: "Club", logoUrl: "/logo.png" };
+  loaded.branding = { name: "Club", logoPath: "/objects/uploads/00000000-0000-0000-0000-000000000000" };
   loaded.refreshHealth.pendingRecoveries = [{
     failedAttempts: 2,
     outageStartedAt: "2026-09-16T12:00:00.000Z",
@@ -404,7 +404,7 @@ test("mutable tracker replacements are detached from frozen loaded snapshots", (
       updatedAt: "2026-09-16T18:00:00Z",
     },
   }));
-  loaded.branding = { name: "Club", logoUrl: "/logo.png" };
+  loaded.branding = { name: "Club", logoPath: "/objects/uploads/00000000-0000-0000-0000-000000000000" };
   loaded.refreshHealth.pendingRecoveries = [{
     failedAttempts: 2,
     outageStartedAt: "2026-09-16T12:00:00.000Z",

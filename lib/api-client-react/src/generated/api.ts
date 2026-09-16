@@ -27,6 +27,7 @@ import type {
   Match,
   MatchUpdate,
   RefreshHealth,
+  TrackerLogo,
   TrackerSettingsInput,
   TrackerState
 } from './api.schemas';
@@ -377,6 +378,171 @@ export const useSaveTrackerSettings = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getSaveTrackerSettingsMutationOptions(options));
     }
+
+export const getUploadTrackerLogoUrl = () => {
+
+
+
+
+  return `/api/tracker/logo`
+}
+
+/**
+ * @summary Validate and upload a tracker logo to App Storage
+ */
+export const uploadTrackerLogo = async (uploadTrackerLogoBody: Blob, options?: Parameters<typeof customFetch>[1]): Promise<TrackerLogo> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TrackerLogo>(getUploadTrackerLogoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png', ...getHeaders(options?.headers) },
+    body: uploadTrackerLogoBody
+  }
+);}
+
+
+
+
+
+export const getUploadTrackerLogoMutationKey = () => ['uploadTrackerLogo'] as const;
+
+export const getUploadTrackerLogoMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadTrackerLogo>>, TError,UploadTrackerLogoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadTrackerLogo>>, TError,UploadTrackerLogoMutationVariables, TContext> => {
+
+const mutationKey = getUploadTrackerLogoMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadTrackerLogo>>, UploadTrackerLogoMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  uploadTrackerLogo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadTrackerLogoMutationResult = NonNullable<Awaited<ReturnType<typeof uploadTrackerLogo>>>
+    export type UploadTrackerLogoMutationBody = BodyType<Blob>
+    export type UploadTrackerLogoMutationError = ErrorType<ApiError>
+    export type UploadTrackerLogoMutationVariables = {data: BodyType<Blob>}
+
+    /**
+ * @summary Validate and upload a tracker logo to App Storage
+ */
+export const useUploadTrackerLogo = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadTrackerLogo>>, TError,UploadTrackerLogoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadTrackerLogo>>,
+        TError,
+        UploadTrackerLogoMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadTrackerLogoMutationOptions(options));
+    }
+
+export const getGetStorageObjectUrl = (objectPath: string,) => {
+
+
+
+
+  return `/api/storage/objects/${objectPath}`
+}
+
+/**
+ * @summary Serve an uploaded object from App Storage
+ */
+export const getStorageObject = async (objectPath: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetStorageObjectUrl(objectPath),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStorageObjectQueryKey = (objectPath: string,) => {
+    return [
+    `/api/storage/objects/${objectPath}`
+    ] as const;
+    }
+
+
+export const getGetStorageObjectQueryOptions = <TData = Awaited<ReturnType<typeof getStorageObject>>, TError = ErrorType<ApiError>>(objectPath: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStorageObject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStorageObjectQueryKey(objectPath);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStorageObject>>> = ({ signal }) => getStorageObject(objectPath, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: objectPath !== null && objectPath !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStorageObject>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStorageObjectQueryResult = NonNullable<Awaited<ReturnType<typeof getStorageObject>>>
+export type GetStorageObjectQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Serve an uploaded object from App Storage
+ */
+
+export function useGetStorageObject<TData = Awaited<ReturnType<typeof getStorageObject>>, TError = ErrorType<ApiError>>(
+ objectPath: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStorageObject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStorageObjectQueryOptions(objectPath,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getUpdateMatchUrl = (matchId: string,) => {
 

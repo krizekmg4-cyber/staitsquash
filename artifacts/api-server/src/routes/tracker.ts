@@ -1,9 +1,11 @@
-import { Router, type IRouter } from "express";
+import express, { Router, type IRouter } from "express";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   GetTrackerResponse,
   GetTrackerHealthResponse,
   RefreshTrackerResponse,
+  UploadTrackerLogoResponse,
   SaveCoachReportBody,
   SaveCoachReportParams,
   SaveCoachReportResponse,
@@ -25,6 +27,7 @@ import {
   type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
+import { ObjectStorageService } from "../lib/object-storage.js";
 
 const INITIAL_STATE: TrackerState = {
   players: [{ id: "cameron-stait", name: "Cameron Stait" }],
@@ -36,7 +39,7 @@ const INITIAL_STATE: TrackerState = {
     { id: "nico", name: "Nico" },
     { id: "unassigned", name: "Unassigned" },
   ],
-  branding: { name: "StaitSquash", logoUrl: null },
+  branding: { name: "StaitSquash", logoPath: null },
   matches: [
     {
       id: "match-1",
@@ -103,6 +106,9 @@ function getAlertThreshold(): number {
 
 function normalizeState(state: TrackerState): ReadonlyTrackerState {
   const alertThreshold = getAlertThreshold();
+  const storedBranding = state.branding as TrackerState["branding"] & {
+    logoUrl?: string | null;
+  };
   const storedRefreshHealth = state.refreshHealth as TrackerState["refreshHealth"] & {
     pendingRecovery?: RefreshRecovery | null;
     pendingRecoveries?: RefreshRecovery[];
@@ -111,9 +117,12 @@ function normalizeState(state: TrackerState): ReadonlyTrackerState {
     ...state,
     players: state.players.map((player) => ({ ...player })),
     coaches: state.coaches.map((coach) => ({ ...coach })),
-    branding: state.branding
-      ? { ...state.branding }
-      : { name: "StaitSquash", logoUrl: null },
+    branding: storedBranding
+      ? {
+          name: storedBranding.name,
+          logoPath: storedBranding.logoPath ?? null,
+        }
+      : { name: "StaitSquash", logoPath: null },
     matches: state.matches.map((match) => ({
       ...match,
       report: match.report
@@ -237,6 +246,19 @@ function formatDuration(durationMs: number): string {
   }`;
 }
 
+export function isLogoImage(bytes: Buffer, contentType: string): boolean {
+  if (bytes.length === 0 || bytes.length > 5 * 1024 * 1024) return false;
+  if (contentType === "image/png") {
+    return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (contentType === "image/jpeg") return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (contentType === "image/gif") return ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"));
+  if (contentType === "image/webp") {
+    return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  return false;
+}
+
 async function alertStaffOfRecovery(
   recovery: RefreshRecovery,
 ): Promise<void> {
@@ -276,7 +298,7 @@ type TrackerRouterDependencies = {
 function trackerResponse(state: ReadonlyTrackerState) {
   return {
     ...state,
-    branding: state.branding ?? { name: "StaitSquash", logoUrl: null },
+    branding: state.branding ?? { name: "StaitSquash", logoPath: null },
     refreshHealth: {
       ...state.refreshHealth,
       pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
@@ -295,6 +317,7 @@ export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = { getState, saveState },
 ): IRouter {
   const router: IRouter = Router();
+  const objectStorage = new ObjectStorageService();
   const { getState: loadState, saveState: persistState } = dependencies;
   let mutationQueue: Promise<void> = Promise.resolve();
 
@@ -339,6 +362,25 @@ export function createTrackerRouter(
       res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
     });
   });
+
+  router.post(
+    "/tracker/logo",
+    express.raw({ type: ["image/png", "image/jpeg", "image/webp", "image/gif"], limit: "5mb" }),
+    async (req, res): Promise<void> => {
+      if (!Buffer.isBuffer(req.body) || !isLogoImage(req.body, req.get("content-type") ?? "")) {
+        res.status(400).json({ error: "Choose a valid PNG, JPG, WebP, or GIF image up to 5 MB" });
+        return;
+      }
+      try {
+        const objectPath = `/objects/uploads/${randomUUID()}`;
+        await objectStorage.saveObject(objectPath, req.body, req.get("content-type")!);
+        res.json(UploadTrackerLogoResponse.parse({ objectPath }));
+      } catch (error) {
+        req.log.error({ err: error }, "Could not store tracker logo");
+        res.status(500).json({ error: "Could not store tracker logo" });
+      }
+    },
+  );
 
   router.patch("/matches/:matchId", async (req, res): Promise<void> => {
     const params = UpdateMatchParams.safeParse(req.params);

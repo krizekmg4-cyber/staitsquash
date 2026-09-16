@@ -57,6 +57,8 @@ const formatInputDate = (value: string) => {
 const getInitials = (name: string) =>
   name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
 
+const logoSrc = (path: string | null) => path ? `/api/storage${path}` : null;
+
 function TrackerSkeleton() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-10 pt-6 sm:px-8">
@@ -108,7 +110,7 @@ function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerSt
     <header className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-8">
         <div className="flex items-center gap-3">
-          {state.branding.logoUrl ? <img src={state.branding.logoUrl} alt="" className="h-10 w-10 rounded-xl bg-white object-contain p-1" /> : <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
+          {state.branding.logoPath ? <img src={logoSrc(state.branding.logoPath)!} alt="" className="h-10 w-10 rounded-xl bg-white object-contain p-1" /> : <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
             <span className="font-serif text-xl font-black italic">S</span>
             <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-accent" />
           </div>}
@@ -357,20 +359,37 @@ function Modal({ title, eyebrow, onClose, children }: { title: string; eyebrow: 
   );
 }
 
-function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoUrl: string | null } }) => void; saving: boolean }) {
+function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => void; saving: boolean }) {
   const [coaches, setCoaches] = useState(state.coaches.filter((coach) => coach.id !== 'unassigned'));
   const [brandName, setBrandName] = useState(state.branding.name);
-  const [logoUrl, setLogoUrl] = useState(state.branding.logoUrl ?? '');
+  const [logoPath, setLogoPath] = useState(state.branding.logoPath);
+  const [logoError, setLogoError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const uploadLogo = async (file: File) => {
+    setLogoError('');
+    setUploading(true);
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('Too large');
+      const response = await fetch('/api/tracker/logo', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
+      if (!response.ok) throw new Error('Upload failed');
+      const uploaded = await response.json() as { objectPath: string };
+      setLogoPath(uploaded.objectPath);
+    } catch {
+      setLogoError('Choose a PNG, JPG, WebP, or GIF image up to 5 MB.');
+    } finally {
+      setUploading(false);
+    }
+  };
   const slug = (name: string, fallback: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
   const setCoach = (index: number, name: string) => setCoaches(coaches.map((item, i) => i === index ? { ...item, name, id: slug(name, `coach-${index + 1}`) } : item));
   return (
     <Modal title="Tracker settings" eyebrow="Players, coaches & branding" onClose={onClose}>
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
-        <label className="block"><span className="field-label">Logo image URL</span><input className="field" type="url" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} placeholder="https://…/logo.png" /><span className="mt-2 block text-[11px] text-muted-foreground">Paste a public PNG, JPG, SVG, or WebP link.</span>{logoUrl && <img src={logoUrl} alt="Logo preview" className="mt-3 h-16 max-w-48 rounded-xl border border-border bg-white object-contain p-2" />}</label>
+        <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button type="button" onClick={() => setLogoPath(null)} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
         <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <input className="field" key={`${person.id}-${index}`} value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" />)}</div><p className="mt-2 text-[11px] text-muted-foreground">These five names appear when assigning a coach to a match.</p></section>
       </div>
-      <button disabled={saving || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoUrl: logoUrl.trim() || null } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
+      <button disabled={saving || uploading || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoPath } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
     </Modal>
   );
 }
