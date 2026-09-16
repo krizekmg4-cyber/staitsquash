@@ -391,7 +391,139 @@ type TrackerRouterDependencies = {
   mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
   objectStorage?: Pick<ObjectStorageService, "saveObject" | "getObject" | "deleteObject">;
   authorizeStaff?: RequestHandler;
+  recoverInvalidState?: (request: {
+    actorId: string;
+    reason: string;
+  }) => Promise<
+    | { outcome: "recovered"; backupId: string; recoveredAt: string }
+    | { outcome: "valid" }
+    | { outcome: "missing" }
+  >;
 };
+
+type RecoveryTransaction = {
+  loadForUpdate: () => Promise<{ id: string; data: unknown } | undefined>;
+  insertBackup: (backup: {
+    id: string;
+    trackerStateId: string;
+    rejectedData: unknown;
+    rejectionDetails: string;
+    createdAt: Date;
+  }) => Promise<void>;
+  replaceState: (replacement: {
+    trackerStateId: string;
+    data: TrackerState;
+    updatedAt: Date;
+  }) => Promise<void>;
+  insertAudit: (audit: {
+    id: string;
+    trackerStateId: string;
+    backupId: string;
+    actorId: string;
+    reason: string;
+    recoveredAt: Date;
+  }) => Promise<void>;
+};
+
+export type RunRecoveryTransaction = <T>(
+  operation: (transaction: RecoveryTransaction) => Promise<T>,
+) => Promise<T>;
+
+async function runDatabaseRecoveryTransaction<T>(
+  operation: (transaction: RecoveryTransaction) => Promise<T>,
+): Promise<T> {
+  const {
+    db,
+    trackerRecoveryAuditTable,
+    trackerStateBackupTable,
+    trackerStateTable,
+  } = await import("@workspace/db");
+  return db.transaction(async (transaction) =>
+    operation({
+      loadForUpdate: async () => {
+        const [row] = await transaction
+          .select()
+          .from(trackerStateTable)
+          .where(eq(trackerStateTable.id, "main"))
+          .for("update");
+        return row;
+      },
+      insertBackup: async (backup) => {
+        await transaction.insert(trackerStateBackupTable).values(backup);
+      },
+      replaceState: async (replacement) => {
+        await transaction
+          .update(trackerStateTable)
+          .set({
+            data: replacement.data,
+            updatedAt: replacement.updatedAt,
+          })
+          .where(eq(trackerStateTable.id, replacement.trackerStateId));
+      },
+      insertAudit: async (audit) => {
+        await transaction.insert(trackerRecoveryAuditTable).values(audit);
+      },
+    }),
+  );
+}
+
+export async function recoverInvalidTrackerState({
+  actorId,
+  reason,
+}: {
+  actorId: string;
+  reason: string;
+}, runTransaction: RunRecoveryTransaction = runDatabaseRecoveryTransaction): Promise<
+  | { outcome: "recovered"; backupId: string; recoveredAt: string }
+  | { outcome: "valid" }
+  | { outcome: "missing" }
+> {
+  return runTransaction(async (transaction) => {
+    const row = await transaction.loadForUpdate();
+    if (!row) return { outcome: "missing" };
+    if (PersistedTrackerState.safeParse(row.data).success) {
+      return { outcome: "valid" };
+    }
+
+    let rejectionDetails: string;
+    try {
+      parsePersistedTrackerState(row.data);
+      throw new Error("Expected rejected tracker snapshot");
+    } catch (error) {
+      rejectionDetails =
+        error instanceof Error ? error.message : "Unknown validation failure";
+    }
+
+    const backupId = randomUUID();
+    const auditId = randomUUID();
+    const recoveredAt = new Date();
+    await transaction.insertBackup({
+      id: backupId,
+      trackerStateId: row.id,
+      rejectedData: row.data,
+      rejectionDetails,
+      createdAt: recoveredAt,
+    });
+    await transaction.replaceState({
+      trackerStateId: row.id,
+      data: structuredClone(INITIAL_STATE),
+      updatedAt: recoveredAt,
+    });
+    await transaction.insertAudit({
+      id: auditId,
+      trackerStateId: row.id,
+      backupId,
+      actorId,
+      reason,
+      recoveredAt,
+    });
+    return {
+      outcome: "recovered",
+      backupId,
+      recoveredAt: recoveredAt.toISOString(),
+    };
+  });
+}
 
 function trackerResponse(state: ReadonlyTrackerState) {
   const pendingRecoveryNotices =
@@ -426,12 +558,15 @@ export function createTrackerRouter(
     getState,
     saveState,
     mutateState: mutateStateInTransaction,
+    recoverInvalidState: recoverInvalidTrackerState,
   },
 ): IRouter {
   const router: IRouter = Router();
   const objectStorage = dependencies.objectStorage ?? new ObjectStorageService();
   const authorizeStaff = dependencies.authorizeStaff ?? requireStaff;
   const { getState: loadState, saveState: persistState } = dependencies;
+  const recoverRejectedState =
+    dependencies.recoverInvalidState ?? recoverInvalidTrackerState;
   let mutationQueue: Promise<void> = Promise.resolve();
 
   function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -456,6 +591,54 @@ export function createTrackerRouter(
 
   router.get("/tracker/health", authorizeStaff, async (_req, res): Promise<void> => {
     res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
+  });
+
+  router.post("/tracker/recover", authorizeStaff, async (req, res): Promise<void> => {
+    const reason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (reason.length < 10 || reason.length > 500) {
+      res.status(400).json({
+        error: "Explain the recovery reason in 10 to 500 characters",
+      });
+      return;
+    }
+    const actorId = res.locals.staffUserId;
+    if (typeof actorId !== "string" || actorId.length === 0) {
+      req.log?.error("Approved staff identity was unavailable during recovery");
+      res.status(500).json({ error: "Recovery could not identify the staff member" });
+      return;
+    }
+
+    let result: Awaited<ReturnType<typeof recoverRejectedState>>;
+    try {
+      result = await recoverRejectedState({ actorId, reason });
+    } catch (error) {
+      req.log?.error(
+        { err: error, actorId },
+        "Could not back up and reset rejected tracker snapshot",
+      );
+      res.status(503).json({
+        error: "Tracker recovery could not be completed safely",
+      });
+      return;
+    }
+    if (result.outcome === "valid") {
+      res.status(409).json({
+        error: "Recovery refused because the current tracker snapshot is valid",
+      });
+      return;
+    }
+    if (result.outcome === "missing") {
+      res.status(409).json({
+        error: "Recovery refused because there is no rejected tracker snapshot",
+      });
+      return;
+    }
+    req.log?.info(
+      { actorId, backupId: result.backupId, reason },
+      "Rejected tracker snapshot backed up and reset",
+    );
+    res.json(result);
   });
 
   router.get("/players/:shareToken/tracker", async (req, res): Promise<void> => {

@@ -5,6 +5,8 @@ import {
   createTrackerRouter,
   isLogoImage,
   parsePersistedTrackerState,
+  recoverInvalidTrackerState,
+  type RunRecoveryTransaction,
 } from "./tracker.ts";
 import type { TrackerState } from "../lib/club-locker.ts";
 import { createRequireStaff } from "../middlewares/requireStaff.ts";
@@ -72,6 +74,293 @@ test("staff routes distinguish anonymous, unapproved, and approved accounts", as
         server.close((error) => error ? reject(error) : resolve()),
       );
     }
+  }
+});
+
+test("tracker recovery requires approved staff and records their identity", async () => {
+  const calls: Array<{ actorId: string; reason: string }> = [];
+  for (const [userId, approved, expectedStatus] of [
+    [null, false, 401],
+    ["user_unapproved", false, 403],
+    ["user_staff", true, 200],
+  ] as const) {
+    const app = express();
+    app.use(express.json());
+    app.use(createTrackerRouter({
+      getState: async () => healthyState(),
+      saveState: async () => undefined,
+      authorizeStaff: createRequireStaff({
+        getUserId: () => userId,
+        isApprovedStaff: async () => approved,
+      }),
+      recoverInvalidState: async (request) => {
+        calls.push(request);
+        return {
+          outcome: "recovered",
+          backupId: "backup-1",
+          recoveredAt: "2026-09-16T12:00:00.000Z",
+        };
+      },
+    }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/tracker/recover`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "Restore service after validation failure" }),
+        },
+      );
+      assert.equal(response.status, expectedStatus);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error ? reject(error) : resolve()),
+      );
+    }
+  }
+  assert.deepEqual(calls, [{
+    actorId: "user_staff",
+    reason: "Restore service after validation failure",
+  }]);
+});
+
+test("tracker recovery validates its audit reason and refuses valid snapshots", async () => {
+  let recoveryCalls = 0;
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = { info() {}, warn() {}, error() {} } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => healthyState(),
+    saveState: async () => undefined,
+    authorizeStaff: (_req, res, next) => {
+      res.locals.staffUserId = "user_staff";
+      next();
+    },
+    recoverInvalidState: async () => {
+      recoveryCalls += 1;
+      return { outcome: "valid" };
+    },
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const base = `http://127.0.0.1:${address.port}/tracker/recover`;
+    const invalidReason = await fetch(base, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "too short" }),
+    });
+    assert.equal(invalidReason.status, 400);
+    assert.equal(recoveryCalls, 0);
+
+    const validSnapshot = await fetch(base, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Operator confirmed rejected saved data" }),
+    });
+    assert.equal(validSnapshot.status, 409);
+    assert.match(
+      String((await validSnapshot.json() as { error: string }).error),
+      /current tracker snapshot is valid/,
+    );
+    assert.equal(recoveryCalls, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("tracker recovery preserves the rejected snapshot before reset and audit", async () => {
+  type RecoveryStorage = {
+    row: { id: string; data: unknown } | undefined;
+    backups: Array<{
+      id: string;
+      rejectedData: unknown;
+      rejectionDetails: string;
+    }>;
+    audits: Array<{
+      backupId: string;
+      actorId: string;
+      reason: string;
+    }>;
+  };
+  const storage: RecoveryStorage = {
+    row: {
+      id: "main",
+      data: {
+        players: "rejected",
+        diagnosticMarker: "keep-for-investigation",
+      },
+    },
+    backups: [],
+    audits: [],
+  };
+  const runTransaction: RunRecoveryTransaction = async (operation) => {
+    const working = structuredClone(storage);
+    const result = await operation({
+      loadForUpdate: async () => working.row,
+      insertBackup: async (backup) => {
+        working.backups.push({
+          id: backup.id,
+          rejectedData: structuredClone(backup.rejectedData),
+          rejectionDetails: backup.rejectionDetails,
+        });
+      },
+      replaceState: async (replacement) => {
+        assert(working.row);
+        working.row.data = structuredClone(replacement.data);
+      },
+      insertAudit: async (audit) => {
+        working.audits.push({
+          backupId: audit.backupId,
+          actorId: audit.actorId,
+          reason: audit.reason,
+        });
+      },
+    });
+    Object.assign(storage, working);
+    return result;
+  };
+  const result = await recoverInvalidTrackerState({
+    actorId: "user_staff",
+    reason: "Snapshot validation blocked staff access",
+  }, runTransaction);
+  assert.equal(result.outcome, "recovered");
+  assert.equal(storage.backups.length, 1);
+  assert.deepEqual(storage.backups[0]?.rejectedData, {
+    players: "rejected",
+    diagnosticMarker: "keep-for-investigation",
+  });
+  assert.match(
+    storage.backups[0]?.rejectionDetails ?? "",
+    /Stored tracker snapshot is invalid/,
+  );
+  assert(storage.row);
+  assert.doesNotThrow(() => parsePersistedTrackerState(storage.row!.data));
+  assert.deepEqual(storage.audits, [{
+    backupId:
+      result.outcome === "recovered" ? result.backupId : "unreachable",
+    actorId: "user_staff",
+    reason: "Snapshot validation blocked staff access",
+  }]);
+});
+
+test("tracker recovery transaction rolls back if audit persistence fails", async () => {
+  const originalData = {
+    players: "rejected",
+    diagnosticMarker: "must-survive",
+  };
+  const storage = {
+    row: { id: "main", data: structuredClone(originalData) as unknown },
+    backupCount: 0,
+  };
+  const runTransaction: RunRecoveryTransaction = async (operation) => {
+    const working = structuredClone(storage);
+    const result = await operation({
+      loadForUpdate: async () => working.row,
+      insertBackup: async () => {
+        working.backupCount += 1;
+      },
+      replaceState: async (replacement) => {
+        working.row.data = structuredClone(replacement.data);
+      },
+      insertAudit: async () => {
+        throw new Error("audit unavailable");
+      },
+    });
+    Object.assign(storage, working);
+    return result;
+  };
+  await assert.rejects(
+    recoverInvalidTrackerState({
+      actorId: "user_staff",
+      reason: "Snapshot validation blocked staff access",
+    }, runTransaction),
+    /audit unavailable/,
+  );
+  assert.deepEqual(storage.row.data, originalData);
+  assert.equal(storage.backupCount, 0);
+});
+
+test("tracker recovery core refuses valid and missing locked snapshots", async () => {
+  for (const [row, expected] of [
+    [{ id: "main", data: healthyState() }, "valid"],
+    [undefined, "missing"],
+  ] as const) {
+    let writeCount = 0;
+    const runTransaction: RunRecoveryTransaction = async (operation) =>
+      operation({
+        loadForUpdate: async () => row,
+        insertBackup: async () => { writeCount += 1; },
+        replaceState: async () => { writeCount += 1; },
+        insertAudit: async () => { writeCount += 1; },
+      });
+    const result = await recoverInvalidTrackerState({
+      actorId: "user_staff",
+      reason: "Snapshot validation blocked staff access",
+    }, runTransaction);
+    assert.equal(result.outcome, expected);
+    assert.equal(writeCount, 0);
+  }
+});
+
+test("tracker recovery returns a safe response when its transaction fails", async () => {
+  const errors: unknown[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = {
+      info() {},
+      warn() {},
+      error(value: unknown) { errors.push(value); },
+    } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => healthyState(),
+    saveState: async () => undefined,
+    authorizeStaff: (_req, res, next) => {
+      res.locals.staffUserId = "user_staff";
+      next();
+    },
+    recoverInvalidState: async () => {
+      throw new Error("database unavailable");
+    },
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/tracker/recover`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          reason: "Snapshot validation blocked staff access",
+        }),
+      },
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      error: "Tracker recovery could not be completed safely",
+    });
+    assert.equal(errors.length, 1);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
   }
 });
 

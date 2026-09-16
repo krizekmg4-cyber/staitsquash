@@ -50,6 +50,7 @@ export function createRequireStaff(
       return;
     }
 
+    res.locals.staffUserId = userId;
     next();
   };
 }
