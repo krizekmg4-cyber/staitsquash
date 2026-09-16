@@ -79,6 +79,25 @@ export const GetTrackerResponse = zod.object({
 
 
 /**
+ * @summary Get schedule refresh and staff notification health
+ */
+export const getTrackerHealthResponseConsecutiveFailuresMin = 0;
+
+
+export const getTrackerHealthResponsePendingRecoveryNoticesMin = 0;
+
+
+
+export const GetTrackerHealthResponse = zod.object({
+  "consecutiveFailures": zod.number().int().min(getTrackerHealthResponseConsecutiveFailuresMin),
+  "alertThreshold": zod.number().int().min(1),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "alertSentAt": zod.coerce.date().nullable(),
+  "pendingRecoveryNotices": zod.number().int().min(getTrackerHealthResponsePendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
+})
+
+
+/**
  * @summary Replace the player roster, coach options, and tracker branding
  */
 

@@ -20,7 +20,9 @@ import {
 } from 'lucide-react';
 import {
   getGetTrackerQueryKey,
+  getGetTrackerHealthQueryKey,
   useGetTracker,
+  useGetTrackerHealth,
   useRefreshTracker,
   useSaveCoachReport,
   useSaveTrackerSettings,
@@ -376,6 +378,13 @@ function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerStat
 function TrackerPage() {
   const queryClient = useQueryClient();
   const tracker = useGetTracker({ query: { queryKey: getGetTrackerQueryKey(), staleTime: 30000 } });
+  const trackerHealth = useGetTrackerHealth({
+    query: {
+      queryKey: getGetTrackerHealthQueryKey(),
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
+    },
+  });
   const refresh = useRefreshTracker();
   const updateMatch = useUpdateMatch();
   const saveReport = useSaveCoachReport();
@@ -395,6 +404,12 @@ function TrackerPage() {
   }, [toast]);
 
   const state = tracker.data;
+  useEffect(() => {
+    if (!trackerHealth.data) return;
+    queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) =>
+      current ? { ...current, refreshHealth: trackerHealth.data! } : current,
+    );
+  }, [queryClient, trackerHealth.data]);
   const persistedRefreshFailures = state?.refreshHealth.consecutiveFailures ?? 0;
   const pendingRecoveryNotices = state?.refreshHealth.pendingRecoveryNotices ?? 0;
   const matches = useMemo(() => [...(state?.matches ?? [])].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)), [state?.matches]);

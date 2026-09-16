@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import {
   GetTrackerResponse,
+  GetTrackerHealthResponse,
   RefreshTrackerResponse,
   SaveCoachReportBody,
   SaveCoachReportParams,
@@ -270,6 +271,13 @@ function trackerResponse(state: TrackerState) {
   };
 }
 
+function trackerHealthResponse(state: TrackerState) {
+  return {
+    ...state.refreshHealth,
+    pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
+  };
+}
+
 export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = { getState, saveState },
 ): IRouter {
@@ -288,6 +296,10 @@ export function createTrackerRouter(
 
   router.get("/tracker", async (_req, res): Promise<void> => {
     res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
+  });
+
+  router.get("/tracker/health", async (_req, res): Promise<void> => {
+    res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
   });
 
   router.put("/tracker/settings", async (req, res): Promise<void> => {

@@ -26,6 +26,7 @@ import type {
   HealthStatus,
   Match,
   MatchUpdate,
+  RefreshHealth,
   TrackerSettingsInput,
   TrackerState
 } from './api.schemas';
@@ -200,6 +201,83 @@ export function useGetTracker<TData = Awaited<ReturnType<typeof getTracker>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTrackerQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTrackerHealthUrl = () => {
+
+
+
+
+  return `/api/tracker/health`
+}
+
+/**
+ * @summary Get schedule refresh and staff notification health
+ */
+export const getTrackerHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<RefreshHealth> => {
+
+  return customFetch<RefreshHealth>(getGetTrackerHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTrackerHealthQueryKey = () => {
+    return [
+    `/api/tracker/health`
+    ] as const;
+    }
+
+
+export const getGetTrackerHealthQueryOptions = <TData = Awaited<ReturnType<typeof getTrackerHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrackerHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTrackerHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrackerHealth>>> = ({ signal }) => getTrackerHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrackerHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTrackerHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getTrackerHealth>>>
+export type GetTrackerHealthQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get schedule refresh and staff notification health
+ */
+
+export function useGetTrackerHealth<TData = Awaited<ReturnType<typeof getTrackerHealth>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrackerHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTrackerHealthQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -38,6 +38,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrackerState"
+  /tracker/health:
+    get:
+      operationId: getTrackerHealth
+      tags: [tracker]
+      summary: Get schedule refresh and staff notification health
+      responses:
+        "200":
+          description: Current tracker health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshHealth"
   /tracker/settings:
     put:
       operationId: saveTrackerSettings
