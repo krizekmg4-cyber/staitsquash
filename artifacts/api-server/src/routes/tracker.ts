@@ -12,11 +12,12 @@ import {
   UpdateMatchResponse,
 } from "@workspace/api-zod";
 import {
+  clearPendingRecovery,
   parseClubLockerFeed,
-  getRefreshRecovery,
   recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
+  type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
 
@@ -82,6 +83,7 @@ const INITIAL_STATE: TrackerState = {
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    pendingRecovery: null,
   },
 };
 
@@ -105,6 +107,7 @@ function normalizeState(state: TrackerState): TrackerState {
             (state.refreshHealth.consecutiveFailures > 0
               ? state.refreshHealth.lastFailureAt
               : null),
+          pendingRecovery: state.refreshHealth.pendingRecovery ?? null,
         }
       : {
           consecutiveFailures: 0,
@@ -112,6 +115,7 @@ function normalizeState(state: TrackerState): TrackerState {
           firstFailureAt: null,
           lastFailureAt: null,
           alertSentAt: null,
+          pendingRecovery: null,
         },
   };
 }
@@ -205,7 +209,7 @@ function formatDuration(durationMs: number): string {
 }
 
 async function alertStaffOfRecovery(
-  recovery: NonNullable<ReturnType<typeof getRefreshRecovery>>,
+  recovery: RefreshRecovery,
 ): Promise<void> {
   const url = process.env["STAFF_ALERT_WEBHOOK_URL"];
   if (!url) throw new Error("STAFF_ALERT_WEBHOOK_URL is not configured");
@@ -304,17 +308,17 @@ router.post("/tracker/refresh", async (req, res): Promise<void> => {
   const alertThreshold = getAlertThreshold();
   try {
     const previousState = await getState();
-    const recoveredAt = new Date().toISOString();
-    const recovery = getRefreshRecovery(previousState, recoveredAt);
     const state = await refreshTrackerState(
       async () => previousState,
       fetchClubLockerFeed,
       saveState,
       alertThreshold,
     );
+    const recovery = state.refreshHealth.pendingRecovery;
     if (recovery) {
       try {
         await alertStaffOfRecovery(recovery);
+        await saveState(clearPendingRecovery(state));
         req.log.info(
           {
             failedAttempts: recovery.failedAttempts,

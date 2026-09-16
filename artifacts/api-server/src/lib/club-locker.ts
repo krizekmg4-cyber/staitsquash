@@ -31,6 +31,7 @@ export type RefreshHealth = {
   firstFailureAt: string | null;
   lastFailureAt: string | null;
   alertSentAt: string | null;
+  pendingRecovery: RefreshRecovery | null;
 };
 
 export type RefreshRecovery = {
@@ -68,7 +69,11 @@ export function getRefreshRecovery(
 export function clearRefreshFailures(
   state: TrackerState,
   alertThreshold: number,
+  recoveredAt = new Date().toISOString(),
 ): TrackerState {
+  const pendingRecovery =
+    state.refreshHealth.pendingRecovery ??
+    getRefreshRecovery(state, recoveredAt);
   return {
     ...state,
     refreshHealth: {
@@ -77,6 +82,17 @@ export function clearRefreshFailures(
       firstFailureAt: null,
       lastFailureAt: null,
       alertSentAt: null,
+      pendingRecovery,
+    },
+  };
+}
+
+export function clearPendingRecovery(state: TrackerState): TrackerState {
+  return {
+    ...state,
+    refreshHealth: {
+      ...state.refreshHealth,
+      pendingRecovery: null,
     },
   };
 }
@@ -94,6 +110,7 @@ export function recordRefreshFailure(
       firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
+      pendingRecovery: state.refreshHealth.pendingRecovery,
     },
   };
 }

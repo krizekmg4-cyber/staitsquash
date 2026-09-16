@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  clearPendingRecovery,
   clearRefreshFailures,
   getRefreshRecovery,
   mergeClubLockerFeed,
@@ -56,6 +57,7 @@ const stateWith = (...matches: TrackerState["matches"]): TrackerState => ({
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    pendingRecovery: null,
   },
 });
 
@@ -394,12 +396,22 @@ test("counts consecutive refresh failures and preserves alert state", () => {
     firstFailureAt: "2026-09-16T12:00:00.000Z",
     lastFailureAt: "2026-09-16T12:05:00.000Z",
     alertSentAt: "2026-09-16T12:01:00.000Z",
+    pendingRecovery: null,
   });
 });
 
-test("successful refresh clears the failure condition", () => {
-  const failing = recordRefreshFailure(stateWith(), 2);
-  const healthy = clearRefreshFailures(failing, 4);
+test("successful refresh clears the failure condition and queues its recovery", () => {
+  const failing = recordRefreshFailure(
+    stateWith(),
+    2,
+    "2026-09-16T12:00:00.000Z",
+  );
+  failing.refreshHealth.alertSentAt = "2026-09-16T12:01:00.000Z";
+  const healthy = clearRefreshFailures(
+    failing,
+    4,
+    "2026-09-16T12:20:00.000Z",
+  );
 
   assert.deepEqual(healthy.refreshHealth, {
     consecutiveFailures: 0,
@@ -407,7 +419,35 @@ test("successful refresh clears the failure condition", () => {
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    pendingRecovery: {
+      failedAttempts: 1,
+      outageStartedAt: failing.refreshHealth.firstFailureAt,
+      recoveredAt: "2026-09-16T12:20:00.000Z",
+      outageDurationMs: 20 * 60_000,
+    },
   });
+});
+
+test("successful refresh preserves a pending recovery until delivery succeeds", () => {
+  const pending = {
+    failedAttempts: 3,
+    outageStartedAt: "2026-09-16T12:00:00.000Z",
+    recoveredAt: "2026-09-16T12:20:00.000Z",
+    outageDurationMs: 20 * 60_000,
+  };
+  const state = stateWith();
+  state.refreshHealth.pendingRecovery = pending;
+
+  const retried = clearRefreshFailures(
+    state,
+    3,
+    "2026-09-16T12:30:00.000Z",
+  );
+  assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
+
+  const delivered = clearPendingRecovery(retried);
+  assert.equal(delivered.refreshHealth.pendingRecovery, null);
+  assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
 });
 
 test("reports recovery details only after an alerted failure", () => {
