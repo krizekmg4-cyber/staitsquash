@@ -360,6 +360,57 @@ test("retained-match overlaps never mutate or persist tracker state", async () =
   assert.deepEqual(original, snapshot);
 });
 
+test("rescheduled imported matches cannot overlap absent saved history", async () => {
+  const reportedMatch = storedMatch("reported", {
+    report: {
+      matchId: "stored-reported",
+      observations: ["Good recovery"],
+      transcript: null,
+      updatedAt: "2026-09-16T18:00:00Z",
+    },
+  });
+  const absentSavedMatches = [
+    storedMatch("completed", { status: "completed", result: "Won 3-1" }),
+    reportedMatch,
+  ];
+
+  for (const absentSavedMatch of absentSavedMatches) {
+    const imported = storedMatch("existing", {
+      coachId: "coach-1",
+      result: "Local result",
+    });
+    const original = stateWith(imported, absentSavedMatch);
+    const snapshot = structuredClone(original);
+    let persisted = false;
+
+    await assert.rejects(
+      refreshTrackerState(
+        async () => original,
+        async () => ({
+          matches: [
+            incoming("existing", {
+              opponent: "Changed opponent",
+              startsAt: "2026-09-16T15:00:00-04:00",
+              endsAt: "2026-09-16T15:45:00-04:00",
+              venue: "Changed venue",
+              court: "Court 7",
+            }),
+          ],
+        }),
+        async () => {
+          persisted = true;
+        },
+      ),
+      /overlapping a retained match for player ID "player-1"/,
+    );
+
+    assert.equal(persisted, false);
+    assert.deepEqual(original, snapshot);
+    assert.equal(original.matches[0]?.coachId, "coach-1");
+    assert.equal(original.matches[0]?.result, "Local result");
+  }
+});
+
 test("schedule and player conflicts never change stored tracker state", async () => {
   const invalidFeeds = [
     {
