@@ -8,7 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-strip-types --test src/**/*.test.ts"
+    "test": "node --experimental-strip-types --test src/**/*.test.ts",
+    "test:schedule": "node --experimental-strip-types --test src/lib/club-locker.test.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
