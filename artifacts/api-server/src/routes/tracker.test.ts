@@ -509,6 +509,98 @@ test("overlapping match edit and report save preserve both changes", async () =>
   }
 });
 
+test("independent API instances coordinate overlapping tracker writes", async () => {
+  let state = healthyState();
+  state.matches = [{
+    id: "match-1",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: null,
+  }];
+
+  let transactionQueue = Promise.resolve();
+  const mutateState = async <T,>(
+    operation: (
+      loadState: () => Promise<TrackerState>,
+      saveState: (next: TrackerState) => Promise<void>,
+    ) => Promise<T>,
+  ): Promise<T> => {
+    const previous = transactionQueue;
+    let release!: () => void;
+    transactionQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation(
+        async () => structuredClone(state),
+        async (next) => {
+          state = structuredClone(next);
+        },
+      );
+    } finally {
+      release();
+    }
+  };
+
+  const createApp = () => {
+    const app = express();
+    app.use(express.json());
+    app.use(createTrackerRouter({
+      getState: async () => structuredClone(state),
+      saveState: async (next) => {
+        state = structuredClone(next);
+      },
+      mutateState,
+    }));
+    return app;
+  };
+  const servers = [createApp().listen(0, "127.0.0.1"), createApp().listen(0, "127.0.0.1")];
+  await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  })));
+  const urls = servers.map((server) => {
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    return `http://127.0.0.1:${address.port}`;
+  });
+
+  try {
+    const [edit, report] = await Promise.all([
+      fetch(`${urls[0]}/matches/match-1`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ court: "Court 2" }),
+      }),
+      fetch(`${urls[1]}/matches/match-1/report`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          observations: ["Strong length.", "Recovered to the T.", "Stayed composed."],
+          transcript: "Good work under pressure.",
+        }),
+      }),
+    ]);
+
+    assert.deepEqual([edit.status, report.status], [200, 200]);
+    assert.equal(state.matches[0]?.court, "Court 2");
+    assert.equal(state.matches[0]?.report?.transcript, "Good work under pressure.");
+  } finally {
+    await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    )));
+  }
+});
+
 test("coach report audio upload stores bytes and returns its object path", async () => {
   const state = healthyState();
   state.matches = [{

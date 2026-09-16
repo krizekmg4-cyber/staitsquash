@@ -187,6 +187,42 @@ async function saveState(state: TrackerState): Promise<void> {
     .where(eq(trackerStateTable.id, "main"));
 }
 
+type StateMutationOperation<T> = (
+  loadState: () => Promise<ReadonlyTrackerState>,
+  saveState: (state: TrackerState) => Promise<void>,
+) => Promise<T>;
+
+async function mutateStateInTransaction<T>(
+  operation: StateMutationOperation<T>,
+): Promise<T> {
+  const { db, trackerStateTable } = await import("@workspace/db");
+  return db.transaction(async (transaction) => {
+    await transaction
+      .insert(trackerStateTable)
+      .values({ id: "main", data: INITIAL_STATE })
+      .onConflictDoNothing();
+
+    const [row] = await transaction
+      .select()
+      .from(trackerStateTable)
+      .where(eq(trackerStateTable.id, "main"))
+      .for("update");
+    if (!row) throw new Error("Tracker state row could not be locked");
+
+    let current = normalizeState(row.data as TrackerState);
+    return operation(
+      async () => current,
+      async (next) => {
+        await transaction
+          .update(trackerStateTable)
+          .set({ data: next, updatedAt: new Date() })
+          .where(eq(trackerStateTable.id, "main"));
+        current = freezeTrackerState(cloneTrackerState(next));
+      },
+    );
+  });
+}
+
 async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
   const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
   if (!url) {
@@ -299,6 +335,7 @@ async function alertStaffOfRecovery(
 type TrackerRouterDependencies = {
   getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
+  mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
   objectStorage?: Pick<ObjectStorageService, "saveObject">;
 };
 
@@ -321,7 +358,11 @@ function trackerHealthResponse(state: ReadonlyTrackerState) {
 }
 
 export function createTrackerRouter(
-  dependencies: TrackerRouterDependencies = { getState, saveState },
+  dependencies: TrackerRouterDependencies = {
+    getState,
+    saveState,
+    mutateState: mutateStateInTransaction,
+  },
 ): IRouter {
   const router: IRouter = Router();
   const objectStorage = dependencies.objectStorage ?? new ObjectStorageService();
@@ -335,6 +376,13 @@ export function createTrackerRouter(
       () => undefined,
     );
     return result;
+  }
+
+  function coordinateMutation<T>(
+    operation: StateMutationOperation<T>,
+  ): Promise<T> {
+    if (dependencies.mutateState) return dependencies.mutateState(operation);
+    return serializeMutation(() => operation(loadState, persistState));
   }
 
   router.get("/tracker", async (_req, res): Promise<void> => {
@@ -351,8 +399,8 @@ export function createTrackerRouter(
       res.status(400).json({ error: body.error.message });
       return;
     }
-    await serializeMutation(async () => {
-      const state = cloneTrackerState(await loadState());
+    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+      const state = cloneTrackerState(await loadLockedState());
       const coaches = [...body.data.coaches];
       if (!coaches.some((coach) => coach.id === "unassigned")) {
         coaches.push({ id: "unassigned", name: "Unassigned" });
@@ -365,7 +413,7 @@ export function createTrackerRouter(
       }));
       state.branding = body.data.branding;
       state.lastUpdatedAt = new Date().toISOString();
-      await persistState(state);
+      await saveLockedState(state);
       res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
     });
   });
@@ -401,8 +449,8 @@ export function createTrackerRouter(
       return;
     }
 
-    await serializeMutation(async () => {
-      const state = cloneTrackerState(await loadState());
+    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+      const state = cloneTrackerState(await loadLockedState());
       const match = state.matches.find((item) => item.id === params.data.matchId);
       if (!match) {
         res.status(404).json({ error: "Match not found" });
@@ -411,7 +459,7 @@ export function createTrackerRouter(
 
       Object.assign(match, body.data);
       state.lastUpdatedAt = new Date().toISOString();
-      await persistState(state);
+      await saveLockedState(state);
       res.json(UpdateMatchResponse.parse(match));
     });
   });
@@ -428,8 +476,8 @@ export function createTrackerRouter(
       return;
     }
 
-    await serializeMutation(async () => {
-      const state = cloneTrackerState(await loadState());
+    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+      const state = cloneTrackerState(await loadLockedState());
       const match = state.matches.find((item) => item.id === params.data.matchId);
       if (!match) {
         res.status(404).json({ error: "Match not found" });
@@ -448,7 +496,7 @@ export function createTrackerRouter(
         updatedAt: new Date().toISOString(),
       };
       state.lastUpdatedAt = new Date().toISOString();
-      await persistState(state);
+      await saveLockedState(state);
       res.json(SaveCoachReportResponse.parse(match.report));
     });
   });
@@ -488,14 +536,14 @@ export function createTrackerRouter(
   );
 
   router.post("/tracker/refresh", async (req, res): Promise<void> => {
-  await serializeMutation(async () => {
+  await coordinateMutation(async (loadLockedState, saveLockedState) => {
   const alertThreshold = getAlertThreshold();
   try {
-    const previousState = await loadState();
+    const previousState = await loadLockedState();
     const state = await refreshTrackerState(
       async () => previousState,
       fetchClubLockerFeed,
-      persistState,
+      saveLockedState,
       alertThreshold,
     );
     let notificationState = state;
@@ -504,7 +552,7 @@ export function createTrackerRouter(
       try {
         await alertStaffOfRecovery(recovery);
         notificationState = clearPendingRecovery(notificationState);
-        await persistState(notificationState);
+        await saveLockedState(notificationState);
         req.log.info(
           {
             failedAttempts: recovery.failedAttempts,
@@ -523,10 +571,10 @@ export function createTrackerRouter(
     res.json(RefreshTrackerResponse.parse(trackerResponse(notificationState)));
   } catch (error) {
     const failedState = recordRefreshFailure(
-      await loadState(),
+      await loadLockedState(),
       alertThreshold,
     );
-    await persistState(failedState);
+    await saveLockedState(failedState);
     req.log.warn(
       {
         err: error,
@@ -543,7 +591,7 @@ export function createTrackerRouter(
       try {
         await alertStaff(failedState, error);
         failedState.refreshHealth.alertSentAt = new Date().toISOString();
-        await persistState(failedState);
+        await saveLockedState(failedState);
         req.log.error(
           { consecutiveFailures: failedState.refreshHealth.consecutiveFailures },
           "Staff alerted about repeated Club Locker refresh failures",
