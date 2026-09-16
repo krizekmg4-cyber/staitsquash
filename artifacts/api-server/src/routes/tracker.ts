@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import {
   GetTrackerResponse,
   GetTrackerHealthResponse,
+  GetPlayerTrackerParams,
+  GetPlayerTrackerResponse,
   RefreshTrackerResponse,
   UploadTrackerLogoResponse,
   UploadCoachReportAudioParams,
@@ -391,6 +393,29 @@ export function createTrackerRouter(
 
   router.get("/tracker/health", async (_req, res): Promise<void> => {
     res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
+  });
+
+  router.get("/players/:playerId/tracker", async (req, res): Promise<void> => {
+    const params = GetPlayerTrackerParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const state = await loadState();
+    const player = state.players.find((item) => item.id === params.data.playerId);
+    if (!player) {
+      res.status(404).json({ error: "Player not found" });
+      return;
+    }
+    const matches = state.matches.filter((match) => match.playerId === player.id);
+    const coachIds = new Set(matches.map((match) => match.coachId));
+    res.json(GetPlayerTrackerResponse.parse({
+      player,
+      matches,
+      coaches: state.coaches.filter((coach) => coachIds.has(coach.id)),
+      branding: state.branding,
+      lastUpdatedAt: state.lastUpdatedAt,
+    }));
   });
 
   router.put("/tracker/settings", async (req, res): Promise<void> => {

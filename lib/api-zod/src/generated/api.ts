@@ -102,6 +102,62 @@ export const GetTrackerHealthResponse = zod.object({
 
 
 /**
+ * @summary Get a read-only tracker view for one player
+ */
+export const GetPlayerTrackerParams = zod.object({
+  "playerId": zod.coerce.string()
+})
+
+export const getPlayerTrackerResponseMatchesItemReportOneObservationsMin = 3;
+export const getPlayerTrackerResponseMatchesItemReportOneObservationsMax = 3;
+
+export const getPlayerTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+export const getPlayerTrackerResponseBrandingNameMax = 80;
+
+export const getPlayerTrackerResponseBrandingLogoPathMax = 100;
+
+
+export const getPlayerTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
+
+
+export const GetPlayerTrackerResponse = zod.object({
+  "player": zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+}),
+  "coaches": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+})),
+  "matches": zod.array(zod.object({
+  "id": zod.string(),
+  "externalId": zod.string().nullable(),
+  "playerId": zod.string(),
+  "opponent": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "venue": zod.string(),
+  "court": zod.string(),
+  "coachId": zod.string(),
+  "status": zod.enum(['upcoming', 'completed']),
+  "result": zod.string().nullish(),
+  "report": zod.union([zod.object({
+  "matchId": zod.string(),
+  "observations": zod.array(zod.string()).min(getPlayerTrackerResponseMatchesItemReportOneObservationsMin).max(getPlayerTrackerResponseMatchesItemReportOneObservationsMax),
+  "transcript": zod.string().nullish(),
+  "audioPath": zod.string().regex(getPlayerTrackerResponseMatchesItemReportOneAudioPathRegExp).nullable(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]).optional()
+})),
+  "branding": zod.object({
+  "name": zod.string().min(1).max(getPlayerTrackerResponseBrandingNameMax),
+  "logoPath": zod.string().max(getPlayerTrackerResponseBrandingLogoPathMax).regex(getPlayerTrackerResponseBrandingLogoPathRegExp).nullable()
+}),
+  "lastUpdatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Replace the player roster, coach options, and tracker branding
  */
 

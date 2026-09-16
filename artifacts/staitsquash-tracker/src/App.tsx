@@ -22,8 +22,10 @@ import {
 import {
   getGetTrackerQueryKey,
   getGetTrackerHealthQueryKey,
+  getGetPlayerTrackerQueryKey,
   useGetTracker,
   useGetTrackerHealth,
+  useGetPlayerTracker,
   useRefreshTracker,
   useSaveCoachReport,
   useSaveTrackerSettings,
@@ -35,7 +37,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
+import { Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
 
 const queryClient = new QueryClient();
 
@@ -599,10 +601,176 @@ function TrackerPage() {
   );
 }
 
+function PlayerView() {
+  const { playerId } = useParams<{ playerId: string }>();
+  const tracker = useGetPlayerTracker(playerId, { query: { queryKey: getGetPlayerTrackerQueryKey(playerId), staleTime: 30_000 } });
+  const state = tracker.data;
+  const player = state?.player;
+  const matches = useMemo(
+    () => [...(state?.matches ?? [])]
+      .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
+    [state?.matches],
+  );
+  const upcoming = matches.filter((match) => match.status === 'upcoming');
+  const completed = matches.filter((match) => match.status === 'completed').reverse();
+  const nextMatch = upcoming[0];
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = player ? `${player.name} · ${state?.branding.name ?? 'StaitSquash'}` : 'Player view · StaitSquash';
+    return () => { document.title = previousTitle; };
+  }, [player, state?.branding.name]);
+
+  if (tracker.isLoading) return <TrackerSkeleton />;
+  if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
+  if (!state || !player) {
+    return (
+      <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-5 text-center">
+        <div className="max-w-sm">
+          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Player link</p>
+          <h1 className="mt-3 font-serif text-3xl font-bold">This player could not be found.</h1>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask your coach or match desk for an updated link.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="noise min-h-[100dvh] bg-background text-foreground">
+      <header className="bg-sidebar text-sidebar-foreground">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-5 py-4">
+          <div className="flex items-center gap-3">
+            {state.branding.logoPath ? (
+              <img src={logoSrc(state.branding.logoPath)!} alt="" className="h-10 w-10 rounded-xl bg-white object-contain p-1" />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary font-serif text-xl font-black italic text-sidebar-primary-foreground">S</div>
+            )}
+            <div>
+              <p className="font-serif text-base font-bold leading-none">{state.branding.name}</p>
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-sidebar-foreground/55">Player match card</p>
+            </div>
+          </div>
+          <span className="rounded-full bg-sidebar-accent px-3 py-1.5 font-mono text-[9px] uppercase tracking-[.14em] text-sidebar-primary">Read only</span>
+        </div>
+      </header>
+
+      <main className="court-lines mx-auto max-w-3xl px-4 pb-12 pt-7 sm:px-6 sm:pt-10">
+        <section className="rise-in">
+          <p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Welcome courtside</p>
+          <h1 data-testid="heading-player-view" className="mt-2 font-serif text-4xl font-bold tracking-[-.04em] sm:text-5xl">{player.name}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{upcoming.length} upcoming · {completed.length} completed</p>
+        </section>
+
+        {nextMatch ? (
+          <section data-testid="card-next-match" className="rise-in delay-1 relative mt-7 overflow-hidden rounded-[26px] bg-primary p-5 text-primary-foreground shadow-xl sm:p-7">
+            <div className="absolute -right-10 -top-12 h-40 w-40 rounded-full border-[22px] border-secondary/15" />
+            <div className="relative">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[10px] uppercase tracking-[.2em] text-secondary">Next match</p>
+                <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt)}</span>
+              </div>
+              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)}</p>
+              <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt)}</p>
+              <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-primary-foreground/15 py-5">
+                <div>
+                  <p className="font-mono text-[9px] uppercase tracking-[.15em] text-primary-foreground/50">Court</p>
+                  <p className="mt-1 font-serif text-xl font-bold">{nextMatch.court}</p>
+                  <p className="mt-1 text-xs text-primary-foreground/60">{nextMatch.venue}</p>
+                </div>
+                <ArrowRight size={18} className="text-secondary" />
+                <div className="text-right">
+                  <p className="font-mono text-[9px] uppercase tracking-[.15em] text-primary-foreground/50">Opponent</p>
+                  <p className="mt-1 font-serif text-xl font-bold">{nextMatch.opponent}</p>
+                </div>
+              </div>
+              <div className="mt-5 flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary font-mono text-xs font-bold text-secondary-foreground">
+                  {getInitials(state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? '?')}
+                </span>
+                <div>
+                  <p className="font-mono text-[9px] uppercase tracking-[.14em] text-primary-foreground/50">Your coach</p>
+                  <p className="text-sm font-bold">{state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? 'To be assigned'}</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="rise-in delay-1 mt-7 rounded-2xl border border-card-border bg-card p-6 shadow-sm">
+            <Check size={22} className="text-secondary" />
+            <h2 className="mt-4 font-serif text-2xl font-bold">No match is waiting.</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">Your completed matches and coach notes are below.</p>
+          </section>
+        )}
+
+        {upcoming.length > 1 && (
+          <section className="rise-in delay-2 mt-8">
+            <div className="mb-3 flex items-end justify-between">
+              <h2 className="font-serif text-2xl font-bold">Coming up</h2>
+              <span className="font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{upcoming.length - 1} later</span>
+            </div>
+            <div className="space-y-3">
+              {upcoming.slice(1).map((match) => (
+                <article key={match.id} className="rounded-2xl border border-card-border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {formatTime(match.startsAt)}</p><p className="mt-1 font-serif text-xl font-bold">{match.opponent}</p></div>
+                    <span className="rounded-lg bg-secondary px-2.5 py-1.5 text-xs font-bold text-secondary-foreground">{match.court}</span>
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">{match.venue} · Coach {state.coaches.find((coach) => coach.id === match.coachId)?.name ?? 'TBA'}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="rise-in delay-3 mt-9">
+          <div className="mb-3 flex items-end justify-between">
+            <h2 className="font-serif text-2xl font-bold">Match history</h2>
+            <Trophy size={19} className="text-accent" />
+          </div>
+          {completed.length ? (
+            <div className="space-y-3">
+              {completed.map((match) => {
+                const coach = state.coaches.find((item) => item.id === match.coachId);
+                return (
+                  <article data-testid={`player-history-${match.id}`} key={match.id} className="rounded-2xl border border-card-border bg-card p-4 shadow-sm sm:p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {match.court}</p><h3 className="mt-1 font-serif text-xl font-bold">{match.opponent}</h3><p className="mt-1 text-xs text-muted-foreground">Coach {coach?.name ?? 'Unassigned'}</p></div>
+                      <span className="rounded-lg bg-muted px-3 py-2 font-mono text-xs font-bold">{match.result ?? 'Completed'}</span>
+                    </div>
+                    {match.report && (
+                      <div className="mt-4 border-t border-border pt-4">
+                        <p className="font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">Coach advice</p>
+                        <ol className="mt-3 space-y-2">
+                          {match.report.observations.map((observation, index) => <li key={index} className="flex gap-3 text-sm leading-6"><span className="font-mono text-xs font-bold text-accent">{index + 1}</span><span>{observation}</span></li>)}
+                        </ol>
+                        {match.report.transcript && <p className="mt-4 rounded-xl bg-muted/65 p-3 text-xs italic leading-5 text-muted-foreground">“{match.report.transcript}”</p>}
+                        {match.report.audioPath && (
+                          <div className="mt-4">
+                            <p className="mb-2 flex items-center gap-2 text-xs font-bold"><Mic size={14} className="text-accent" /> Voice note</p>
+                            <audio controls preload="metadata" className="h-9 w-full" src={audioSrc(match.report.audioPath)!}>Your browser does not support audio playback.</audio>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center text-sm text-muted-foreground">Completed matches and coach advice will appear here.</div>
+          )}
+        </section>
+        <footer className="mt-10 border-t border-border pt-4 text-center font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">Your schedule updates automatically · {state.branding.name}</footer>
+      </main>
+    </div>
+  );
+}
+
 function Router() {
   return (
     <RoutedErrorBoundary>
       <Switch>
+        <Route path="/players/:playerId" component={PlayerView} />
         <Route path="/" component={TrackerPage} />
         <Route component={NotFound} />
       </Switch>

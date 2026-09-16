@@ -26,6 +26,7 @@ import type {
   HealthStatus,
   Match,
   MatchUpdate,
+  PlayerTrackerView,
   RefreshHealth,
   StoredObject,
   TrackerLogo,
@@ -280,6 +281,83 @@ export function useGetTrackerHealth<TData = Awaited<ReturnType<typeof getTracker
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTrackerHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPlayerTrackerUrl = (playerId: string,) => {
+
+
+
+
+  return `/api/players/${playerId}/tracker`
+}
+
+/**
+ * @summary Get a read-only tracker view for one player
+ */
+export const getPlayerTracker = async (playerId: string, options?: Parameters<typeof customFetch>[1]): Promise<PlayerTrackerView> => {
+
+  return customFetch<PlayerTrackerView>(getGetPlayerTrackerUrl(playerId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlayerTrackerQueryKey = (playerId: string,) => {
+    return [
+    `/api/players/${playerId}/tracker`
+    ] as const;
+    }
+
+
+export const getGetPlayerTrackerQueryOptions = <TData = Awaited<ReturnType<typeof getPlayerTracker>>, TError = ErrorType<ApiError>>(playerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlayerTrackerQueryKey(playerId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlayerTracker>>> = ({ signal }) => getPlayerTracker(playerId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: playerId !== null && playerId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPlayerTrackerQueryResult = NonNullable<Awaited<ReturnType<typeof getPlayerTracker>>>
+export type GetPlayerTrackerQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Get a read-only tracker view for one player
+ */
+
+export function useGetPlayerTracker<TData = Awaited<ReturnType<typeof getPlayerTracker>>, TError = ErrorType<ApiError>>(
+ playerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPlayerTrackerQueryOptions(playerId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

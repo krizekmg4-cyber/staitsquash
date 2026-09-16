@@ -52,6 +52,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RefreshHealth"
+  /players/{playerId}/tracker:
+    get:
+      operationId: getPlayerTracker
+      tags: [tracker]
+      summary: Get a read-only tracker view for one player
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Player schedule, history, coaches, and branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerTrackerView"
+        "404":
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /tracker/settings:
     put:
       operationId: saveTrackerSettings
@@ -391,6 +415,23 @@ components:
           $ref: "#/components/schemas/RefreshHealth"
         branding:
           $ref: "#/components/schemas/TrackerBranding"
+    PlayerTrackerView:
+      type: object
+      required: [player, coaches, matches, branding, lastUpdatedAt]
+      properties:
+        player:
+          $ref: "#/components/schemas/Player"
+        coaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coach"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
+        lastUpdatedAt: { type: string, format: date-time }
     RefreshHealth:
       type: object
       required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt, pendingRecoveryNotices]

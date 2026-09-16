@@ -166,3 +166,11 @@ export interface TrackerState {
   branding: TrackerBranding;
 }
 
+export interface PlayerTrackerView {
+  player: Player;
+  coaches: Coach[];
+  matches: Match[];
+  branding: TrackerBranding;
+  lastUpdatedAt: string;
+}
+
