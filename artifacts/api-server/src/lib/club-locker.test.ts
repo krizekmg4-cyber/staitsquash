@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   clearPendingRecovery,
   clearRefreshFailures,
+  cloneTrackerState,
+  freezeTrackerState,
   getRefreshRecovery,
   mergeClubLockerFeed,
   parseClubLockerFeed,
@@ -360,6 +362,71 @@ test("parsed feeds reject runtime mutation of player records", () => {
     mutablePlayer.name = "Changed player";
   }, TypeError);
   assert.equal(feed.players?.[0]?.name, "Player One");
+});
+
+test("loaded tracker snapshots are deeply frozen at runtime", () => {
+  const loaded = stateWith(storedMatch("existing", {
+    report: {
+      matchId: "stored-existing",
+      observations: ["Keep width"],
+      transcript: "Coach notes",
+      updatedAt: "2026-09-16T18:00:00Z",
+    },
+  }));
+  loaded.branding = { name: "Club", logoUrl: "/logo.png" };
+  loaded.refreshHealth.pendingRecoveries = [{
+    failedAttempts: 2,
+    outageStartedAt: "2026-09-16T12:00:00.000Z",
+    recoveredAt: "2026-09-16T12:10:00.000Z",
+    outageDurationMs: 10 * 60_000,
+  }];
+
+  const snapshot = freezeTrackerState(loaded);
+  const mutations = [
+    () => ((snapshot.matches as TrackerState["matches"])[0]!.opponent = "Changed"),
+    () => ((snapshot.matches[0]!.report!.observations as string[]).push("Changed")),
+    () => ((snapshot.players as TrackerState["players"])[0]!.name = "Changed"),
+    () => ((snapshot.coaches as TrackerState["coaches"])[0]!.name = "Changed"),
+    () => ((snapshot.branding as TrackerState["branding"])!.name = "Changed"),
+    () => ((snapshot.refreshHealth as TrackerState["refreshHealth"]).consecutiveFailures = 9),
+    () => ((snapshot.refreshHealth.pendingRecoveries as TrackerState["refreshHealth"]["pendingRecoveries"])[0]!.failedAttempts = 9),
+  ];
+
+  for (const mutate of mutations) assert.throws(mutate, TypeError);
+});
+
+test("mutable tracker replacements are detached from frozen loaded snapshots", () => {
+  const loaded = stateWith(storedMatch("existing", {
+    report: {
+      matchId: "stored-existing",
+      observations: ["Keep width"],
+      transcript: "Coach notes",
+      updatedAt: "2026-09-16T18:00:00Z",
+    },
+  }));
+  loaded.branding = { name: "Club", logoUrl: "/logo.png" };
+  loaded.refreshHealth.pendingRecoveries = [{
+    failedAttempts: 2,
+    outageStartedAt: "2026-09-16T12:00:00.000Z",
+    recoveredAt: "2026-09-16T12:10:00.000Z",
+    outageDurationMs: 10 * 60_000,
+  }];
+  const snapshot = freezeTrackerState(loaded);
+  const replacement = cloneTrackerState(snapshot);
+
+  replacement.matches[0]!.report!.observations.push("Changed");
+  replacement.players[0]!.name = "Changed";
+  replacement.coaches[0]!.name = "Changed";
+  replacement.branding!.name = "Changed";
+  replacement.refreshHealth.consecutiveFailures = 9;
+  replacement.refreshHealth.pendingRecoveries[0]!.failedAttempts = 9;
+
+  assert.equal(snapshot.matches[0]!.report!.observations.length, 1);
+  assert.equal(snapshot.players[0]!.name, "Player One");
+  assert.equal(snapshot.coaches[0]!.name, "Coach One");
+  assert.equal(snapshot.branding!.name, "Club");
+  assert.equal(snapshot.refreshHealth.consecutiveFailures, 0);
+  assert.equal(snapshot.refreshHealth.pendingRecoveries[0]!.failedAttempts, 2);
 });
 
 test("mutable replacement players do not share validated feed records", () => {

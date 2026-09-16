@@ -15,10 +15,13 @@ import {
 } from "@workspace/api-zod";
 import {
   clearPendingRecovery,
+  cloneTrackerState,
+  freezeTrackerState,
   parseClubLockerFeed,
   recordRefreshFailure,
   refreshTrackerState,
   type ReadonlyClubLockerFeed,
+  type ReadonlyTrackerState,
   type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
@@ -98,15 +101,25 @@ function getAlertThreshold(): number {
   return Number.isInteger(configured) && configured > 0 ? configured : 3;
 }
 
-function normalizeState(state: TrackerState): TrackerState {
+function normalizeState(state: TrackerState): ReadonlyTrackerState {
   const alertThreshold = getAlertThreshold();
   const storedRefreshHealth = state.refreshHealth as TrackerState["refreshHealth"] & {
     pendingRecovery?: RefreshRecovery | null;
     pendingRecoveries?: RefreshRecovery[];
   };
-  return {
+  return freezeTrackerState({
     ...state,
-    branding: state.branding ?? { name: "StaitSquash", logoUrl: null },
+    players: state.players.map((player) => ({ ...player })),
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    branding: state.branding
+      ? { ...state.branding }
+      : { name: "StaitSquash", logoUrl: null },
+    matches: state.matches.map((match) => ({
+      ...match,
+      report: match.report
+        ? { ...match.report, observations: [...match.report.observations] }
+        : null,
+    })),
     refreshHealth: state.refreshHealth
       ? {
           ...state.refreshHealth,
@@ -131,10 +144,10 @@ function normalizeState(state: TrackerState): TrackerState {
           alertSentAt: null,
           pendingRecoveries: [],
         },
-  };
+  });
 }
 
-async function getState(): Promise<TrackerState> {
+async function getState(): Promise<ReadonlyTrackerState> {
   const { db, trackerStateTable } = await import("@workspace/db");
   const [row] = await db
     .select()
@@ -256,11 +269,11 @@ async function alertStaffOfRecovery(
 }
 
 type TrackerRouterDependencies = {
-  getState: () => Promise<TrackerState>;
+  getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
 };
 
-function trackerResponse(state: TrackerState) {
+function trackerResponse(state: ReadonlyTrackerState) {
   return {
     ...state,
     branding: state.branding ?? { name: "StaitSquash", logoUrl: null },
@@ -271,7 +284,7 @@ function trackerResponse(state: TrackerState) {
   };
 }
 
-function trackerHealthResponse(state: TrackerState) {
+function trackerHealthResponse(state: ReadonlyTrackerState) {
   return {
     ...state.refreshHealth,
     pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
@@ -309,7 +322,7 @@ export function createTrackerRouter(
       return;
     }
     await serializeMutation(async () => {
-      const state = await loadState();
+      const state = cloneTrackerState(await loadState());
       const coaches = [...body.data.coaches];
       if (!coaches.some((coach) => coach.id === "unassigned")) {
         coaches.push({ id: "unassigned", name: "Unassigned" });
@@ -340,7 +353,7 @@ export function createTrackerRouter(
     }
 
     await serializeMutation(async () => {
-      const state = await loadState();
+      const state = cloneTrackerState(await loadState());
       const match = state.matches.find((item) => item.id === params.data.matchId);
       if (!match) {
         res.status(404).json({ error: "Match not found" });
@@ -367,7 +380,7 @@ export function createTrackerRouter(
     }
 
     await serializeMutation(async () => {
-      const state = await loadState();
+      const state = cloneTrackerState(await loadState());
       const match = state.matches.find((item) => item.id === params.data.matchId);
       if (!match) {
         res.status(404).json({ error: "Match not found" });

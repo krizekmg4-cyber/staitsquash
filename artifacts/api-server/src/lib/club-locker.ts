@@ -56,6 +56,45 @@ export type RefreshRecovery = {
   outageDurationMs: number;
 };
 
+export function cloneTrackerState(state: ReadonlyTrackerState): TrackerState {
+  return {
+    players: state.players.map((player) => ({ ...player })),
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    branding: state.branding ? { ...state.branding } : undefined,
+    matches: state.matches.map(cloneTrackerMatch),
+    lastUpdatedAt: state.lastUpdatedAt,
+    source: state.source,
+    refreshHealth: {
+      ...state.refreshHealth,
+      pendingRecoveries: cloneRefreshRecoveries(
+        state.refreshHealth.pendingRecoveries,
+      ),
+    },
+  };
+}
+
+export function freezeTrackerState(state: TrackerState): ReadonlyTrackerState {
+  for (const player of state.players) Object.freeze(player);
+  Object.freeze(state.players);
+  for (const coach of state.coaches) Object.freeze(coach);
+  Object.freeze(state.coaches);
+  if (state.branding) Object.freeze(state.branding);
+  for (const match of state.matches) {
+    if (match.report) {
+      Object.freeze(match.report.observations);
+      Object.freeze(match.report);
+    }
+    Object.freeze(match);
+  }
+  Object.freeze(state.matches);
+  for (const recovery of state.refreshHealth.pendingRecoveries) {
+    Object.freeze(recovery);
+  }
+  Object.freeze(state.refreshHealth.pendingRecoveries);
+  Object.freeze(state.refreshHealth);
+  return Object.freeze(state);
+}
+
 function cloneRefreshRecoveries(
   recoveries: readonly DeepReadonly<RefreshRecovery>[],
 ): RefreshRecovery[] {
@@ -92,17 +131,12 @@ export function clearRefreshFailures(
   alertThreshold: number,
   recoveredAt = new Date().toISOString(),
 ): TrackerState {
-  const pendingRecoveries = cloneRefreshRecoveries(
-    state.refreshHealth.pendingRecoveries,
-  );
+  const replacement = cloneTrackerState(state);
+  const pendingRecoveries = replacement.refreshHealth.pendingRecoveries;
   const recovery = getRefreshRecovery(state, recoveredAt);
   if (recovery) pendingRecoveries.push(recovery);
   return {
-    players: state.players.map((player) => ({ ...player })),
-    coaches: state.coaches.map((coach) => ({ ...coach })),
-    matches: state.matches.map(cloneTrackerMatch),
-    lastUpdatedAt: state.lastUpdatedAt,
-    source: state.source,
+    ...replacement,
     refreshHealth: {
       consecutiveFailures: 0,
       alertThreshold,
@@ -115,17 +149,12 @@ export function clearRefreshFailures(
 }
 
 export function clearPendingRecovery(state: ReadonlyTrackerState): TrackerState {
+  const replacement = cloneTrackerState(state);
   return {
-    players: state.players.map((player) => ({ ...player })),
-    coaches: state.coaches.map((coach) => ({ ...coach })),
-    matches: state.matches.map(cloneTrackerMatch),
-    lastUpdatedAt: state.lastUpdatedAt,
-    source: state.source,
+    ...replacement,
     refreshHealth: {
-      ...state.refreshHealth,
-      pendingRecoveries: cloneRefreshRecoveries(
-        state.refreshHealth.pendingRecoveries.slice(1),
-      ),
+      ...replacement.refreshHealth,
+      pendingRecoveries: replacement.refreshHealth.pendingRecoveries.slice(1),
     },
   };
 }
@@ -135,21 +164,16 @@ export function recordRefreshFailure(
   alertThreshold: number,
   failedAt = new Date().toISOString(),
 ): TrackerState {
+  const replacement = cloneTrackerState(state);
   return {
-    players: state.players.map((player) => ({ ...player })),
-    coaches: state.coaches.map((coach) => ({ ...coach })),
-    matches: state.matches.map(cloneTrackerMatch),
-    lastUpdatedAt: state.lastUpdatedAt,
-    source: state.source,
+    ...replacement,
     refreshHealth: {
       consecutiveFailures: state.refreshHealth.consecutiveFailures + 1,
       alertThreshold,
       firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
-      pendingRecoveries: cloneRefreshRecoveries(
-        state.refreshHealth.pendingRecoveries,
-      ),
+      pendingRecoveries: replacement.refreshHealth.pendingRecoveries,
     },
   };
 }
@@ -402,6 +426,7 @@ export function mergeClubLockerFeed(
   }
 
   return {
+    branding: state.branding ? { ...state.branding } : undefined,
     coaches: state.coaches.map((coach) => ({ ...coach })),
     refreshHealth: {
       ...state.refreshHealth,
