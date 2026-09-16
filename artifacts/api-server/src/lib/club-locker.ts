@@ -23,6 +23,7 @@ type TrackerMatch = {
 export type TrackerState = {
   players: TrackerPerson[];
   coaches: TrackerPerson[];
+  branding?: { name: string; logoUrl: string | null };
   matches: TrackerMatch[];
   lastUpdatedAt: string;
   source: "sample" | "club-locker";

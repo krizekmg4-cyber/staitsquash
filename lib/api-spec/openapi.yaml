@@ -38,6 +38,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrackerState"
+  /tracker/settings:
+    put:
+      operationId: saveTrackerSettings
+      tags: [tracker]
+      summary: Replace the player roster, coach options, and tracker branding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrackerSettingsInput"
+      responses:
+        "200":
+          description: Updated tracker state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
   /matches/{matchId}:
     patch:
       operationId: updateMatch
@@ -130,6 +148,23 @@ components:
       properties:
         id: { type: string }
         name: { type: string }
+    TrackerBranding:
+      type: object
+      required: [name, logoUrl]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        logoUrl: { type: ["string", "null"], maxLength: 2000 }
+    TrackerSettingsInput:
+      type: object
+      required: [coaches, branding]
+      properties:
+        coaches:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Coach"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
     CoachReport:
       type: object
       required: [matchId, observations, updatedAt]
@@ -190,7 +225,7 @@ components:
         result: { type: ["string", "null"] }
     TrackerState:
       type: object
-      required: [players, coaches, matches, lastUpdatedAt, source, refreshHealth]
+      required: [players, coaches, matches, lastUpdatedAt, source, refreshHealth, branding]
       properties:
         players:
           type: array
@@ -210,6 +245,8 @@ components:
           enum: [sample, club-locker]
         refreshHealth:
           $ref: "#/components/schemas/RefreshHealth"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
     RefreshHealth:
       type: object
       required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt, pendingRecoveryNotices]

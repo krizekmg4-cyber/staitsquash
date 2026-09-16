@@ -23,6 +23,25 @@ export interface Player {
   name: string;
 }
 
+export interface TrackerBranding {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  logoUrl: string | null;
+}
+
+export interface TrackerSettingsInput {
+  /** @minItems 1 */
+  coaches: Coach[];
+  branding: TrackerBranding;
+}
+
 export interface CoachReport {
   matchId: string;
   /**
@@ -123,5 +142,6 @@ export interface TrackerState {
   lastUpdatedAt: string;
   source: TrackerStateSource;
   refreshHealth: RefreshHealth;
+  branding: TrackerBranding;
 }
 

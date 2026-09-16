@@ -17,5 +17,7 @@ export * from './matchUpdate';
 export * from './matchUpdateStatus';
 export * from './player';
 export * from './refreshHealth';
+export * from './trackerBranding';
+export * from './trackerSettingsInput';
 export * from './trackerState';
 export * from './trackerStateSource';

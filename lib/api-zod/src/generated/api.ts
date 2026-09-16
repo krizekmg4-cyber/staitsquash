@@ -28,6 +28,10 @@ export const getTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 export const getTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
 
+export const getTrackerResponseBrandingNameMax = 80;
+
+export const getTrackerResponseBrandingLogoUrlMax = 2000;
+
 
 
 export const GetTrackerResponse = zod.object({
@@ -66,6 +70,89 @@ export const GetTrackerResponse = zod.object({
   "lastFailureAt": zod.coerce.date().nullable(),
   "alertSentAt": zod.coerce.date().nullable(),
   "pendingRecoveryNotices": zod.number().int().min(getTrackerResponseRefreshHealthPendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
+}),
+  "branding": zod.object({
+  "name": zod.string().min(1).max(getTrackerResponseBrandingNameMax),
+  "logoUrl": zod.string().max(getTrackerResponseBrandingLogoUrlMax).nullable()
+})
+})
+
+
+/**
+ * @summary Replace the player roster, coach options, and tracker branding
+ */
+
+export const saveTrackerSettingsBodyBrandingNameMax = 80;
+
+export const saveTrackerSettingsBodyBrandingLogoUrlMax = 2000;
+
+
+
+export const SaveTrackerSettingsBody = zod.object({
+  "coaches": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+})).min(1),
+  "branding": zod.object({
+  "name": zod.string().min(1).max(saveTrackerSettingsBodyBrandingNameMax),
+  "logoUrl": zod.string().max(saveTrackerSettingsBodyBrandingLogoUrlMax).nullable()
+})
+})
+
+export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMin = 3;
+export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMax = 3;
+
+export const saveTrackerSettingsResponseRefreshHealthConsecutiveFailuresMin = 0;
+
+
+export const saveTrackerSettingsResponseRefreshHealthPendingRecoveryNoticesMin = 0;
+
+export const saveTrackerSettingsResponseBrandingNameMax = 80;
+
+export const saveTrackerSettingsResponseBrandingLogoUrlMax = 2000;
+
+
+
+export const SaveTrackerSettingsResponse = zod.object({
+  "players": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+})),
+  "coaches": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+})),
+  "matches": zod.array(zod.object({
+  "id": zod.string(),
+  "externalId": zod.string().nullable(),
+  "playerId": zod.string(),
+  "opponent": zod.string(),
+  "startsAt": zod.coerce.date(),
+  "endsAt": zod.coerce.date(),
+  "venue": zod.string(),
+  "court": zod.string(),
+  "coachId": zod.string(),
+  "status": zod.enum(['upcoming', 'completed']),
+  "result": zod.string().nullish(),
+  "report": zod.union([zod.object({
+  "matchId": zod.string(),
+  "observations": zod.array(zod.string()).min(saveTrackerSettingsResponseMatchesItemReportOneObservationsMin).max(saveTrackerSettingsResponseMatchesItemReportOneObservationsMax),
+  "transcript": zod.string().nullish(),
+  "updatedAt": zod.coerce.date()
+}),zod.null()]).optional()
+})),
+  "lastUpdatedAt": zod.coerce.date(),
+  "source": zod.enum(['sample', 'club-locker']),
+  "refreshHealth": zod.object({
+  "consecutiveFailures": zod.number().int().min(saveTrackerSettingsResponseRefreshHealthConsecutiveFailuresMin),
+  "alertThreshold": zod.number().int().min(1),
+  "lastFailureAt": zod.coerce.date().nullable(),
+  "alertSentAt": zod.coerce.date().nullable(),
+  "pendingRecoveryNotices": zod.number().int().min(saveTrackerSettingsResponseRefreshHealthPendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
+}),
+  "branding": zod.object({
+  "name": zod.string().min(1).max(saveTrackerSettingsResponseBrandingNameMax),
+  "logoUrl": zod.string().max(saveTrackerSettingsResponseBrandingLogoUrlMax).nullable()
 })
 })
 
@@ -157,6 +244,10 @@ export const refreshTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 export const refreshTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
 
+export const refreshTrackerResponseBrandingNameMax = 80;
+
+export const refreshTrackerResponseBrandingLogoUrlMax = 2000;
+
 
 
 export const RefreshTrackerResponse = zod.object({
@@ -195,6 +286,10 @@ export const RefreshTrackerResponse = zod.object({
   "lastFailureAt": zod.coerce.date().nullable(),
   "alertSentAt": zod.coerce.date().nullable(),
   "pendingRecoveryNotices": zod.number().int().min(refreshTrackerResponseRefreshHealthPendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
+}),
+  "branding": zod.object({
+  "name": zod.string().min(1).max(refreshTrackerResponseBrandingNameMax),
+  "logoUrl": zod.string().max(refreshTrackerResponseBrandingLogoUrlMax).nullable()
 })
 })
 

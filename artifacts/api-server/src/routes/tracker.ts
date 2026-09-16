@@ -6,6 +6,8 @@ import {
   SaveCoachReportBody,
   SaveCoachReportParams,
   SaveCoachReportResponse,
+  SaveTrackerSettingsBody,
+  SaveTrackerSettingsResponse,
   UpdateMatchBody,
   UpdateMatchParams,
   UpdateMatchResponse,
@@ -26,10 +28,11 @@ const INITIAL_STATE: TrackerState = {
     { id: "alex", name: "Alex" },
     { id: "narelle", name: "Narelle" },
     { id: "rob", name: "Rob" },
+    { id: "jamie", name: "Jamie" },
     { id: "nico", name: "Nico" },
-    { id: "nathan", name: "Nathan" },
     { id: "unassigned", name: "Unassigned" },
   ],
+  branding: { name: "StaitSquash", logoUrl: null },
   matches: [
     {
       id: "match-1",
@@ -102,6 +105,7 @@ function normalizeState(state: TrackerState): TrackerState {
   };
   return {
     ...state,
+    branding: state.branding ?? { name: "StaitSquash", logoUrl: null },
     refreshHealth: state.refreshHealth
       ? {
           ...state.refreshHealth,
@@ -258,6 +262,7 @@ type TrackerRouterDependencies = {
 function trackerResponse(state: TrackerState) {
   return {
     ...state,
+    branding: state.branding ?? { name: "StaitSquash", logoUrl: null },
     refreshHealth: {
       ...state.refreshHealth,
       pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
@@ -283,6 +288,29 @@ export function createTrackerRouter(
 
   router.get("/tracker", async (_req, res): Promise<void> => {
     res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
+  });
+
+  router.put("/tracker/settings", async (req, res): Promise<void> => {
+    const body = SaveTrackerSettingsBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+    const state = await loadState();
+    const coaches = [...body.data.coaches];
+    if (!coaches.some((coach) => coach.id === "unassigned")) {
+      coaches.push({ id: "unassigned", name: "Unassigned" });
+    }
+    const coachIds = new Set(coaches.map((coach) => coach.id));
+    state.coaches = coaches;
+    state.matches = state.matches.map((match) => ({
+      ...match,
+      coachId: coachIds.has(match.coachId) ? match.coachId : "unassigned",
+    }));
+    state.branding = body.data.branding;
+    state.lastUpdatedAt = new Date().toISOString();
+    await persistState(state);
+    res.json(SaveTrackerSettingsResponse.parse(trackerResponse(state)));
   });
 
   router.patch("/matches/:matchId", async (req, res): Promise<void> => {

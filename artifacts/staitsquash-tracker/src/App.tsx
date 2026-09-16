@@ -13,6 +13,7 @@ import {
   MicOff,
   RefreshCw,
   Save,
+  Settings,
   Trophy,
   UsersRound,
   X,
@@ -22,6 +23,7 @@ import {
   useGetTracker,
   useRefreshTracker,
   useSaveCoachReport,
+  useSaveTrackerSettings,
   useUpdateMatch,
 } from '@workspace/api-client-react';
 import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-react';
@@ -99,24 +101,24 @@ function FailureState({ retry }: { retry: () => void }) {
   );
 }
 
-function Header({ state, onRefresh, refreshing }: { state: TrackerState; onRefresh: () => void; refreshing: boolean }) {
+function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void }) {
   return (
     <header className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-8">
         <div className="flex items-center gap-3">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
+          {state.branding.logoUrl ? <img src={state.branding.logoUrl} alt="" className="h-10 w-10 rounded-xl bg-white object-contain p-1" /> : <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
             <span className="font-serif text-xl font-black italic">S</span>
             <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-accent" />
-          </div>
+          </div>}
           <div>
-            <p className="font-serif text-lg font-bold leading-none tracking-tight">StaitSquash</p>
+            <p className="font-serif text-lg font-bold leading-none tracking-tight">{state.branding.name}</p>
             <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker</p>
           </div>
         </div>
-        <button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
+        <div className="flex items-center gap-2"><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
           <RefreshCw size={14} className={cx(refreshing && 'animate-spin')} />
           <span className="hidden sm:inline">{refreshing ? 'Updating' : 'Refresh draw'}</span>
-        </button>
+        </button></div>
       </div>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 pb-4 sm:px-8">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-foreground/50">
@@ -283,20 +285,35 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
   const [transcript, setTranscript] = useState(report?.transcript ?? '');
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
+  const speechRef = useRef<{ stop: () => void } | null>(null);
   const updateObservation = (index: number, value: string) => setObservations((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
   const startRecording = async () => {
+    const SpeechRecognition = (window as typeof window & { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.onresult = (event: any) => {
+        const spoken = Array.from(event.results as ArrayLike<any>).slice(event.resultIndex).map((result: any) => result[0].transcript).join(' ');
+        setTranscript((current) => `${current}${current ? ' ' : ''}${spoken}`.trim());
+      };
+      recognition.onend = () => setRecording(false);
+      recognition.start();
+      speechRef.current = recognition;
+      setRecording(true);
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) return;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const recorder = new MediaRecorder(stream);
-    chunksRef.current = [];
-    recorder.ondataavailable = (event) => chunksRef.current.push(event.data);
     recorder.onstop = () => stream.getTracks().forEach((track) => track.stop());
     recorder.start();
     recorderRef.current = recorder;
     setRecording(true);
   };
   const stopRecording = () => {
+    speechRef.current?.stop();
+    speechRef.current = null;
     recorderRef.current?.stop();
     recorderRef.current = null;
     setRecording(false);
@@ -338,16 +355,36 @@ function Modal({ title, eyebrow, onClose, children }: { title: string; eyebrow: 
   );
 }
 
+function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoUrl: string | null } }) => void; saving: boolean }) {
+  const [coaches, setCoaches] = useState(state.coaches.filter((coach) => coach.id !== 'unassigned'));
+  const [brandName, setBrandName] = useState(state.branding.name);
+  const [logoUrl, setLogoUrl] = useState(state.branding.logoUrl ?? '');
+  const slug = (name: string, fallback: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
+  const setCoach = (index: number, name: string) => setCoaches(coaches.map((item, i) => i === index ? { ...item, name, id: slug(name, `coach-${index + 1}`) } : item));
+  return (
+    <Modal title="Tracker settings" eyebrow="Players, coaches & branding" onClose={onClose}>
+      <div className="space-y-6">
+        <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
+        <label className="block"><span className="field-label">Logo image URL</span><input className="field" type="url" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} placeholder="https://…/logo.png" /><span className="mt-2 block text-[11px] text-muted-foreground">Paste a public PNG, JPG, SVG, or WebP link.</span>{logoUrl && <img src={logoUrl} alt="Logo preview" className="mt-3 h-16 max-w-48 rounded-xl border border-border bg-white object-contain p-2" />}</label>
+        <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <input className="field" key={`${person.id}-${index}`} value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" />)}</div><p className="mt-2 text-[11px] text-muted-foreground">These five names appear when assigning a coach to a match.</p></section>
+      </div>
+      <button disabled={saving || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoUrl: logoUrl.trim() || null } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
+    </Modal>
+  );
+}
+
 function TrackerPage() {
   const queryClient = useQueryClient();
   const tracker = useGetTracker({ query: { queryKey: getGetTrackerQueryKey(), staleTime: 30000 } });
   const refresh = useRefreshTracker();
   const updateMatch = useUpdateMatch();
   const saveReport = useSaveCoachReport();
+  const saveSettings = useSaveTrackerSettings();
   const [view, setView] = useState<ViewMode>('players');
   const [editing, setEditing] = useState<Match | null>(null);
   const [completing, setCompleting] = useState<Match | null>(null);
   const [reporting, setReporting] = useState<Match | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [refreshError, setRefreshError] = useState('');
 
@@ -398,7 +435,7 @@ function TrackerPage() {
   const filteredMatches = view === 'players' ? matches : matches.filter((match) => match.coachId);
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
-      <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} />
+      <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
       <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
         {(refreshError || persistedRefreshFailures > 0) && (
           <div data-testid="notice-refresh-error" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm">
@@ -457,6 +494,7 @@ function TrackerPage() {
       {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
       {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript) => saveCoachReport(reporting, observations, transcript)} saving={saveReport.isPending} />}
+      {settingsOpen && <SettingsEditor state={state} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} onSave={(data) => saveSettings.mutate({ data }, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); setSettingsOpen(false); showSuccess('Settings saved'); }, onError: () => setToast('Settings could not be saved') })} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>
   );

@@ -26,6 +26,7 @@ import type {
   HealthStatus,
   Match,
   MatchUpdate,
+  TrackerSettingsInput,
   TrackerState
 } from './api.schemas';
 
@@ -210,6 +211,94 @@ export function useGetTracker<TData = Awaited<ReturnType<typeof getTracker>>, TE
 
 
 
+
+export const getSaveTrackerSettingsUrl = () => {
+
+
+
+
+  return `/api/tracker/settings`
+}
+
+/**
+ * @summary Replace the player roster, coach options, and tracker branding
+ */
+export const saveTrackerSettings = async (trackerSettingsInput: TrackerSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<TrackerState> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<TrackerState>(getSaveTrackerSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(trackerSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getSaveTrackerSettingsMutationKey = () => ['saveTrackerSettings'] as const;
+
+export const getSaveTrackerSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTrackerSettings>>, TError,SaveTrackerSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveTrackerSettings>>, TError,SaveTrackerSettingsMutationVariables, TContext> => {
+
+const mutationKey = getSaveTrackerSettingsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveTrackerSettings>>, SaveTrackerSettingsMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveTrackerSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveTrackerSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof saveTrackerSettings>>>
+    export type SaveTrackerSettingsMutationBody = BodyType<TrackerSettingsInput>
+    export type SaveTrackerSettingsMutationError = ErrorType<unknown>
+    export type SaveTrackerSettingsMutationVariables = {data: BodyType<TrackerSettingsInput>}
+
+    /**
+ * @summary Replace the player roster, coach options, and tracker branding
+ */
+export const useSaveTrackerSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveTrackerSettings>>, TError,SaveTrackerSettingsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveTrackerSettings>>,
+        TError,
+        SaveTrackerSettingsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSaveTrackerSettingsMutationOptions(options));
+    }
 
 export const getUpdateMatchUrl = (matchId: string,) => {
 

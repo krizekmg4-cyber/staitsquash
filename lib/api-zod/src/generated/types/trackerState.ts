@@ -9,6 +9,7 @@ import type { Coach } from './coach';
 import type { Match } from './match';
 import type { Player } from './player';
 import type { RefreshHealth } from './refreshHealth';
+import type { TrackerBranding } from './trackerBranding';
 import type { TrackerStateSource } from './trackerStateSource';
 
 export interface TrackerState {
@@ -18,4 +19,5 @@ export interface TrackerState {
   lastUpdatedAt: Date;
   source: TrackerStateSource;
   refreshHealth: RefreshHealth;
+  branding: TrackerBranding;
 }
