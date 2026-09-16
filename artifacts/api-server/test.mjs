@@ -1,4 +1,4 @@
-import { readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
@@ -15,49 +15,51 @@ async function findTests(directory, extension = ".test.ts") {
   return tests.flat();
 }
 
-const outputDirectory = ".test-dist";
 const testFiles = process.argv.slice(2);
 const entryPoints = testFiles.length > 0 ? testFiles : await findTests("src");
-await rm(outputDirectory, { recursive: true, force: true });
+const outputDirectory = await mkdtemp(join(process.cwd(), ".test-dist-"));
 
-await build({
-  entryPoints,
-  outdir: outputDirectory,
-  outbase: "src",
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  plugins: [
-    {
-      name: "externalize-third-party-packages",
-      setup(build) {
-        build.onResolve({ filter: /^[^./]/ }, (args) => {
-          if (args.path === "@workspace/db") {
+try {
+  await build({
+    entryPoints,
+    outdir: outputDirectory,
+    outbase: "src",
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    plugins: [
+      {
+        name: "externalize-third-party-packages",
+        setup(build) {
+          build.onResolve({ filter: /^[^./]/ }, (args) => {
+            if (args.path === "@workspace/db") {
+              return { path: args.path, external: true };
+            }
+            if (args.path === "zod") return;
+            if (args.path.startsWith("@workspace/")) return;
             return { path: args.path, external: true };
-          }
-          if (args.path === "zod") return;
-          if (args.path.startsWith("@workspace/")) return;
-          return { path: args.path, external: true };
-        });
+          });
+        },
       },
-    },
-  ],
-  sourcemap: "inline",
-});
-
-const testProcess = spawn(
-  process.execPath,
-  ["--test", ...(await findTests(outputDirectory, ".test.js"))],
-  { stdio: "inherit" },
-);
-
-const exitCode = await new Promise((resolve, reject) => {
-  testProcess.once("error", reject);
-  testProcess.once("exit", (code, signal) => {
-    if (signal) reject(new Error(`Test process exited from signal ${signal}`));
-    else resolve(code ?? 1);
+    ],
+    sourcemap: "inline",
   });
-});
 
-await rm(outputDirectory, { recursive: true, force: true });
-process.exitCode = exitCode;
+  const testProcess = spawn(
+    process.execPath,
+    ["--test", ...(await findTests(outputDirectory, ".test.js"))],
+    { stdio: "inherit" },
+  );
+
+  const exitCode = await new Promise((resolve, reject) => {
+    testProcess.once("error", reject);
+    testProcess.once("exit", (code, signal) => {
+      if (signal) reject(new Error(`Test process exited from signal ${signal}`));
+      else resolve(code ?? 1);
+    });
+  });
+
+  process.exitCode = exitCode;
+} finally {
+  await rm(outputDirectory, { recursive: true, force: true });
+}
