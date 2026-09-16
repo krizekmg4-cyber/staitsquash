@@ -109,6 +109,11 @@ export interface RefreshHealth {
   lastFailureAt: string | null;
   /** @nullable */
   alertSentAt: string | null;
+  /**
+     * Recovery notices waiting to be delivered to staff
+     * @minimum 0
+     */
+  pendingRecoveryNotices: number;
 }
 
 export interface TrackerState {

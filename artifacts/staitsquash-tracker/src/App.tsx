@@ -359,6 +359,7 @@ function TrackerPage() {
 
   const state = tracker.data;
   const persistedRefreshFailures = state?.refreshHealth.consecutiveFailures ?? 0;
+  const pendingRecoveryNotices = state?.refreshHealth.pendingRecoveryNotices ?? 0;
   const matches = useMemo(() => [...(state?.matches ?? [])].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)), [state?.matches]);
   const patchMatch = (updated: Match) => queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (old) => old ? { ...old, matches: old.matches.map((match) => match.id === updated.id ? updated : match), lastUpdatedAt: new Date().toISOString() } : old);
   const showSuccess = (message: string) => setToast(message);
@@ -409,6 +410,17 @@ function TrackerPage() {
                   ? `${persistedRefreshFailures} consecutive refresh ${persistedRefreshFailures === 1 ? 'attempt has' : 'attempts have'} failed${state.refreshHealth.alertSentAt ? ', and staff have been alerted' : ''}.`
                   : `${refreshError}.`}
                 {' '}Your existing matches, coach assignments, results, and reports are unchanged.
+              </p>
+            </div>
+          </div>
+        )}
+        {pendingRecoveryNotices > 0 && (
+          <div data-testid="notice-pending-recoveries" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-sm">
+            <AlertCircle size={18} className="mt-0.5 shrink-0 text-accent" />
+            <div>
+              <p className="font-bold">Recovery notice{pendingRecoveryNotices === 1 ? '' : 's'} waiting to send</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {pendingRecoveryNotices} Club Locker recovery {pendingRecoveryNotices === 1 ? 'notice is' : 'notices are'} queued for staff. The schedule is current, but alert delivery has not fully recovered.
               </p>
             </div>
           </div>

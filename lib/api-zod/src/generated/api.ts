@@ -26,6 +26,8 @@ export const getTrackerResponseMatchesItemReportOneObservationsMax = 3;
 export const getTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 
+export const getTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
+
 
 
 export const GetTrackerResponse = zod.object({
@@ -62,7 +64,8 @@ export const GetTrackerResponse = zod.object({
   "consecutiveFailures": zod.number().int().min(getTrackerResponseRefreshHealthConsecutiveFailuresMin),
   "alertThreshold": zod.number().int().min(1),
   "lastFailureAt": zod.coerce.date().nullable(),
-  "alertSentAt": zod.coerce.date().nullable()
+  "alertSentAt": zod.coerce.date().nullable(),
+  "pendingRecoveryNotices": zod.number().int().min(getTrackerResponseRefreshHealthPendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
 })
 })
 
@@ -152,6 +155,8 @@ export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;
 export const refreshTrackerResponseRefreshHealthConsecutiveFailuresMin = 0;
 
 
+export const refreshTrackerResponseRefreshHealthPendingRecoveryNoticesMin = 0;
+
 
 
 export const RefreshTrackerResponse = zod.object({
@@ -188,7 +193,8 @@ export const RefreshTrackerResponse = zod.object({
   "consecutiveFailures": zod.number().int().min(refreshTrackerResponseRefreshHealthConsecutiveFailuresMin),
   "alertThreshold": zod.number().int().min(1),
   "lastFailureAt": zod.coerce.date().nullable(),
-  "alertSentAt": zod.coerce.date().nullable()
+  "alertSentAt": zod.coerce.date().nullable(),
+  "pendingRecoveryNotices": zod.number().int().min(refreshTrackerResponseRefreshHealthPendingRecoveryNoticesMin).describe('Recovery notices waiting to be delivered to staff')
 })
 })
 

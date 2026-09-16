@@ -15,4 +15,9 @@ export interface RefreshHealth {
   lastFailureAt: Date | null;
   /** @nullable */
   alertSentAt: Date | null;
+  /**
+     * Recovery notices waiting to be delivered to staff
+     * @minimum 0
+     */
+  pendingRecoveryNotices: number;
 }

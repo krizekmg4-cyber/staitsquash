@@ -212,7 +212,7 @@ components:
           $ref: "#/components/schemas/RefreshHealth"
     RefreshHealth:
       type: object
-      required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt]
+      required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt, pendingRecoveryNotices]
       properties:
         consecutiveFailures:
           type: integer
@@ -226,4 +226,8 @@ components:
         alertSentAt:
           type: ["string", "null"]
           format: date-time
+        pendingRecoveryNotices:
+          type: integer
+          minimum: 0
+          description: Recovery notices waiting to be delivered to staff
 

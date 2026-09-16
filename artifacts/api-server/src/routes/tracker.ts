@@ -255,6 +255,16 @@ type TrackerRouterDependencies = {
   saveState: (state: TrackerState) => Promise<void>;
 };
 
+function trackerResponse(state: TrackerState) {
+  return {
+    ...state,
+    refreshHealth: {
+      ...state.refreshHealth,
+      pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
+    },
+  };
+}
+
 export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = { getState, saveState },
 ): IRouter {
@@ -262,7 +272,7 @@ export function createTrackerRouter(
   const { getState: loadState, saveState: persistState } = dependencies;
 
   router.get("/tracker", async (_req, res): Promise<void> => {
-    res.json(GetTrackerResponse.parse(await loadState()));
+    res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
   });
 
   router.patch("/matches/:matchId", async (req, res): Promise<void> => {
@@ -356,7 +366,7 @@ export function createTrackerRouter(
         break;
       }
     }
-    res.json(RefreshTrackerResponse.parse(state));
+    res.json(RefreshTrackerResponse.parse(trackerResponse(notificationState)));
   } catch (error) {
     const failedState = recordRefreshFailure(
       await loadState(),

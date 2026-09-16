@@ -178,6 +178,13 @@ test("refresh route succeeds while a recovery webhook is retried until delivered
         method: "POST",
       });
       assert.equal(failedDelivery.status, 200);
+      const failedDeliveryBody = await failedDelivery.json() as {
+        refreshHealth: { pendingRecoveryNotices: number };
+      };
+      assert.equal(
+        failedDeliveryBody.refreshHealth.pendingRecoveryNotices,
+        1,
+      );
       assert.equal(webhookPayloads.length, 1);
       assert.equal(webhookPayloads[0]?.event, "club-locker-refresh-recovered");
       assert.equal(webhookPayloads[0]?.failedAttempts, recovery.failedAttempts);
@@ -187,6 +194,13 @@ test("refresh route succeeds while a recovery webhook is retried until delivered
         method: "POST",
       });
       assert.equal(successfulRetry.status, 200);
+      const successfulRetryBody = await successfulRetry.json() as {
+        refreshHealth: { pendingRecoveryNotices: number };
+      };
+      assert.equal(
+        successfulRetryBody.refreshHealth.pendingRecoveryNotices,
+        0,
+      );
       assert.equal(webhookPayloads.length, 2);
       assert.deepEqual(webhookPayloads[1], webhookPayloads[0]);
 
@@ -206,6 +220,36 @@ test("refresh route succeeds while a recovery webhook is retried until delivered
       else process.env[key] = value;
     }
   }
+});
+
+test("tracker health reports queued recovery notice count", async () => {
+  const state = healthyState();
+  state.refreshHealth.pendingRecoveries = [
+    {
+      failedAttempts: 2,
+      outageStartedAt: "2026-09-16T10:00:00.000Z",
+      recoveredAt: "2026-09-16T10:10:00.000Z",
+      outageDurationMs: 10 * 60_000,
+    },
+    {
+      failedAttempts: 1,
+      outageStartedAt: "2026-09-16T11:00:00.000Z",
+      recoveredAt: "2026-09-16T11:05:00.000Z",
+      outageDurationMs: 5 * 60_000,
+    },
+  ];
+
+  await withTrackerServer(state, async (url) => {
+    const response = await fetch(`${url}/tracker`);
+    assert.equal(response.status, 200);
+    const body = await response.json() as {
+      refreshHealth: { pendingRecoveryNotices: number };
+    };
+    assert.equal(
+      body.refreshHealth.pendingRecoveryNotices,
+      2,
+    );
+  });
 });
 
 test("refresh route delivers queued recoveries once in incident order", async () => {
