@@ -173,6 +173,67 @@ test("persisted tracker validation identifies malformed nested records", () => {
   }
 });
 
+test("persisted tracker validation identifies inconsistent related records", () => {
+  const validState = healthyState();
+  validState.matches = [{
+    id: "match-1",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "match-1",
+      observations: ["Strong length.", "Recovered well.", "Stayed composed."],
+      transcript: null,
+      audioPath: null,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+
+  const inconsistencies: Array<[
+    string,
+    (snapshot: Record<string, any>) => void,
+    RegExp,
+    RegExp,
+  ]> = [
+    ["missing player", (snapshot) => {
+      snapshot.matches[0].playerId = "missing-player";
+    }, /matches\.0\.playerId/, /Match "match-1" references missing player "missing-player"/],
+    ["missing coach", (snapshot) => {
+      snapshot.matches[0].coachId = "missing-coach";
+    }, /matches\.0\.coachId/, /Match "match-1" references missing coach "missing-coach"/],
+    ["mismatched report", (snapshot) => {
+      snapshot.matches[0].report.matchId = "match-2";
+    }, /matches\.0\.report\.matchId/, /Report matchId "match-2" does not match containing match "match-1"/],
+    ["end before start", (snapshot) => {
+      snapshot.matches[0].endsAt = "2026-09-16T09:59:59.000Z";
+    }, /matches\.0\.endsAt/, /Match "match-1" endsAt must be after startsAt/],
+    ["end equal to start", (snapshot) => {
+      snapshot.matches[0].endsAt = snapshot.matches[0].startsAt;
+    }, /matches\.0\.endsAt/, /Match "match-1" endsAt must be after startsAt/],
+  ];
+
+  for (const [name, corrupt, expectedPath, expectedConflict] of inconsistencies) {
+    const snapshot = structuredClone(validState) as unknown as Record<string, any>;
+    corrupt(snapshot);
+    assert.throws(
+      () => parsePersistedTrackerState(snapshot),
+      (error: Error) => {
+        assert.match(error.message, /Stored tracker snapshot is invalid/);
+        assert.match(error.message, expectedPath, name);
+        assert.match(error.message, expectedConflict, name);
+        return true;
+      },
+    );
+  }
+});
+
 async function withTrackerServer(
   state: TrackerState,
   run: (url: string) => Promise<void>,

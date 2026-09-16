@@ -69,6 +69,43 @@ export const PersistedTrackerState = z.object({
   lastUpdatedAt: DateTimeString,
   source: z.enum(["sample", "club-locker"]),
   refreshHealth: RefreshHealth.optional(),
+}).superRefine((state, context) => {
+  const playerIds = new Set(state.players.map((player) => player.id));
+  const coachIds = new Set(state.coaches.map((coach) => coach.id));
+
+  state.matches.forEach((match, matchIndex) => {
+    if (!playerIds.has(match.playerId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["matches", matchIndex, "playerId"],
+        message: `Match "${match.id}" references missing player "${match.playerId}"`,
+      });
+    }
+
+    if (!coachIds.has(match.coachId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["matches", matchIndex, "coachId"],
+        message: `Match "${match.id}" references missing coach "${match.coachId}"`,
+      });
+    }
+
+    if (Date.parse(match.endsAt) <= Date.parse(match.startsAt)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["matches", matchIndex, "endsAt"],
+        message: `Match "${match.id}" endsAt must be after startsAt`,
+      });
+    }
+
+    if (match.report && match.report.matchId !== match.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["matches", matchIndex, "report", "matchId"],
+        message: `Report matchId "${match.report.matchId}" does not match containing match "${match.id}"`,
+      });
+    }
+  });
 });
 
 export type PersistedTrackerState = z.infer<typeof PersistedTrackerState>;
