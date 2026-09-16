@@ -1,3 +1,4 @@
 - [Read-only state boundaries](readonly-state-boundaries.md) — mutable replacement state must not retain nested references from read-only loaded state.
 - [API bundle smoke validation](api-bundle-smoke-validation.md) — production bundle validation must launch the output on an isolated positive port and own process cleanup.
 - [Workspace test build directories](workspace-test-build-directories.md) — temporary bundled tests must stay package-local when they externalize workspace dependencies.
+- [Staff and player experiences](staff-player-experiences.md) — staff manage the tracker; players use a separate read-only, mobile-friendly match and advice view.
