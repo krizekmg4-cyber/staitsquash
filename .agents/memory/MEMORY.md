@@ -1,0 +1,1 @@
+- [Read-only state boundaries](readonly-state-boundaries.md) — mutable replacement state must not retain nested references from read-only loaded state.

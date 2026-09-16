@@ -9,8 +9,22 @@ import {
   recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
+  type ReadonlyTrackerState,
   type TrackerState,
 } from "./club-locker.ts";
+
+function loadedStateIsDeeplyReadonly(state: ReadonlyTrackerState): void {
+  // @ts-expect-error Loaded matches must be replaced instead of mutated.
+  state.matches[0].opponent = "Changed";
+  // @ts-expect-error Loaded players must be replaced instead of mutated.
+  state.players[0].name = "Changed";
+  // @ts-expect-error Loaded coaches must be replaced instead of mutated.
+  state.coaches[0].name = "Changed";
+  // @ts-expect-error Loaded refresh health must be replaced instead of mutated.
+  state.refreshHealth.consecutiveFailures += 1;
+}
+
+void loadedStateIsDeeplyReadonly;
 
 const incoming = (
   externalId: string,
@@ -124,7 +138,9 @@ test("updates schedule fields while preserving coach work and match history", ()
   assert.equal(result.matches[0]?.coachId, "coach-1");
   assert.equal(result.matches[0]?.status, "completed");
   assert.equal(result.matches[0]?.result, "Won 3-1");
-  assert.equal(result.matches[0]?.report, report);
+  assert.deepEqual(result.matches[0]?.report, report);
+  assert.notEqual(result.matches[0]?.report, report);
+  assert.notEqual(result.matches[0]?.report?.observations, report.observations);
   assert.deepEqual(original, originalSnapshot);
   assert.notEqual(result.matches[0], original);
 });
@@ -525,10 +541,34 @@ test("successful refresh preserves a pending recovery until delivery succeeds", 
     "2026-09-16T12:30:00.000Z",
   );
   assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
+  assert.notEqual(retried.refreshHealth.pendingRecovery, pending);
 
   const delivered = clearPendingRecovery(retried);
   assert.equal(delivered.refreshHealth.pendingRecovery, null);
   assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
+});
+
+test("mutable failure state does not share loaded recovery metadata", () => {
+  const loaded = stateWith();
+  loaded.refreshHealth.pendingRecovery = {
+    failedAttempts: 3,
+    outageStartedAt: "2026-09-16T12:00:00.000Z",
+    recoveredAt: "2026-09-16T12:20:00.000Z",
+    outageDurationMs: 20 * 60_000,
+  };
+
+  const replacement = recordRefreshFailure(
+    loaded,
+    3,
+    "2026-09-16T12:30:00.000Z",
+  );
+  assert.notEqual(
+    replacement.refreshHealth.pendingRecovery,
+    loaded.refreshHealth.pendingRecovery,
+  );
+
+  replacement.refreshHealth.pendingRecovery!.failedAttempts = 4;
+  assert.equal(loaded.refreshHealth.pendingRecovery.failedAttempts, 3);
 });
 
 test("reports recovery details only after an alerted failure", () => {

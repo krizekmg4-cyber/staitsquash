@@ -1,7 +1,6 @@
-export type TrackerState = {
-  players: Array<{ id: string; name: string }>;
-  coaches: Array<{ id: string; name: string }>;
-  matches: Array<{
+type TrackerPerson = { id: string; name: string };
+
+type TrackerMatch = {
     id: string;
     externalId: string | null;
     playerId: string;
@@ -19,11 +18,26 @@ export type TrackerState = {
       transcript: string | null;
       updatedAt: string;
     } | null;
-  }>;
+  };
+
+export type TrackerState = {
+  players: TrackerPerson[];
+  coaches: TrackerPerson[];
+  matches: TrackerMatch[];
   lastUpdatedAt: string;
   source: "sample" | "club-locker";
   refreshHealth: RefreshHealth;
 };
+
+type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer Item)[]
+    ? readonly DeepReadonly<Item>[]
+    : T extends object
+      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+      : T;
+
+export type ReadonlyTrackerState = DeepReadonly<TrackerState>;
 
 export type RefreshHealth = {
   consecutiveFailures: number;
@@ -41,8 +55,14 @@ export type RefreshRecovery = {
   outageDurationMs: number;
 };
 
+function cloneRefreshRecovery(
+  recovery: DeepReadonly<RefreshRecovery> | null,
+): RefreshRecovery | null {
+  return recovery === null ? null : { ...recovery };
+}
+
 export function getRefreshRecovery(
-  state: TrackerState,
+  state: ReadonlyTrackerState,
   recoveredAt = new Date().toISOString(),
 ): RefreshRecovery | null {
   const { alertSentAt, consecutiveFailures, firstFailureAt } =
@@ -67,15 +87,20 @@ export function getRefreshRecovery(
 }
 
 export function clearRefreshFailures(
-  state: TrackerState,
+  state: ReadonlyTrackerState,
   alertThreshold: number,
   recoveredAt = new Date().toISOString(),
 ): TrackerState {
-  const pendingRecovery =
+  const pendingRecovery = cloneRefreshRecovery(
     state.refreshHealth.pendingRecovery ??
-    getRefreshRecovery(state, recoveredAt);
+      getRefreshRecovery(state, recoveredAt),
+  );
   return {
-    ...state,
+    players: state.players.map((player) => ({ ...player })),
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    matches: state.matches.map(cloneTrackerMatch),
+    lastUpdatedAt: state.lastUpdatedAt,
+    source: state.source,
     refreshHealth: {
       consecutiveFailures: 0,
       alertThreshold,
@@ -87,9 +112,13 @@ export function clearRefreshFailures(
   };
 }
 
-export function clearPendingRecovery(state: TrackerState): TrackerState {
+export function clearPendingRecovery(state: ReadonlyTrackerState): TrackerState {
   return {
-    ...state,
+    players: state.players.map((player) => ({ ...player })),
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    matches: state.matches.map(cloneTrackerMatch),
+    lastUpdatedAt: state.lastUpdatedAt,
+    source: state.source,
     refreshHealth: {
       ...state.refreshHealth,
       pendingRecovery: null,
@@ -98,19 +127,23 @@ export function clearPendingRecovery(state: TrackerState): TrackerState {
 }
 
 export function recordRefreshFailure(
-  state: TrackerState,
+  state: ReadonlyTrackerState,
   alertThreshold: number,
   failedAt = new Date().toISOString(),
 ): TrackerState {
   return {
-    ...state,
+    players: state.players.map((player) => ({ ...player })),
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    matches: state.matches.map(cloneTrackerMatch),
+    lastUpdatedAt: state.lastUpdatedAt,
+    source: state.source,
     refreshHealth: {
       consecutiveFailures: state.refreshHealth.consecutiveFailures + 1,
       alertThreshold,
       firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
-      pendingRecovery: state.refreshHealth.pendingRecovery,
+      pendingRecovery: cloneRefreshRecovery(state.refreshHealth.pendingRecovery),
     },
   };
 }
@@ -132,6 +165,19 @@ export type ClubLockerFeed = {
   matches: ClubLockerMatch[];
   players?: Array<{ id: string; name: string }>;
 };
+
+function cloneTrackerMatch(match: ReadonlyTrackerState["matches"][number]): TrackerMatch {
+  return {
+    ...match,
+    report:
+      match.report === null
+        ? null
+        : {
+            ...match.report,
+            observations: [...match.report.observations],
+          },
+  };
+}
 
 function readRequiredString(value: unknown, field: string, index: number): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -243,7 +289,7 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
 }
 
 export function mergeClubLockerFeed(
-  state: TrackerState,
+  state: ReadonlyTrackerState,
   feed: ClubLockerFeed,
 ): TrackerState {
   const currentByExternalId = new Map(
@@ -294,7 +340,7 @@ export function mergeClubLockerFeed(
           : incomingByExternalId.get(match.externalId);
       return incoming
         ? {
-            ...match,
+            ...cloneTrackerMatch(match),
             playerId: incoming.playerId,
             opponent: incoming.opponent,
             startsAt: incoming.startsAt,
@@ -302,7 +348,7 @@ export function mergeClubLockerFeed(
             venue: incoming.venue,
             court: incoming.court,
           }
-        : match;
+        : cloneTrackerMatch(match);
     });
 
   for (const incoming of feed.matches) {
@@ -325,7 +371,9 @@ export function mergeClubLockerFeed(
     });
   }
 
-  const playersById = new Map(state.players.map((player) => [player.id, player]));
+  const playersById = new Map(
+    state.players.map((player) => [player.id, { ...player }]),
+  );
   for (const player of feed.players ?? []) playersById.set(player.id, player);
   for (const match of feed.matches) {
     if (!playersById.has(match.playerId)) {
@@ -337,7 +385,13 @@ export function mergeClubLockerFeed(
   }
 
   return {
-    ...state,
+    coaches: state.coaches.map((coach) => ({ ...coach })),
+    refreshHealth: {
+      ...state.refreshHealth,
+      pendingRecovery: cloneRefreshRecovery(
+        state.refreshHealth.pendingRecovery,
+      ),
+    },
     players: [...playersById.values()],
     matches: retained,
     lastUpdatedAt: new Date().toISOString(),
@@ -346,7 +400,7 @@ export function mergeClubLockerFeed(
 }
 
 export async function refreshTrackerState(
-  loadState: () => Promise<TrackerState>,
+  loadState: () => Promise<ReadonlyTrackerState>,
   loadFeed: () => Promise<ClubLockerFeed>,
   persistState: (state: TrackerState) => Promise<void>,
   alertThreshold = 3,
