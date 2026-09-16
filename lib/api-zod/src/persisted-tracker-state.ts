@@ -21,8 +21,14 @@ const RefreshHealth = z.object({
   firstFailureAt: DateTimeString.nullable().optional(),
   lastFailureAt: DateTimeString.nullable(),
   alertSentAt: DateTimeString.nullable(),
+  failureAlertClaimedAt: DateTimeString.nullable().optional(),
   pendingRecoveries: z.array(RefreshRecovery).optional(),
   pendingRecovery: RefreshRecovery.nullable().optional(),
+  recoveryClaim: z.object({
+    outageStartedAt: DateTimeString,
+    recoveredAt: DateTimeString,
+    claimedAt: DateTimeString,
+  }).nullable().optional(),
 });
 
 const CoachReport = z.object({

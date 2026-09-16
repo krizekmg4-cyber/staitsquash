@@ -47,7 +47,13 @@ export type RefreshHealth = {
   firstFailureAt: string | null;
   lastFailureAt: string | null;
   alertSentAt: string | null;
+  failureAlertClaimedAt: string | null;
   pendingRecoveries: RefreshRecovery[];
+  recoveryClaim: {
+    outageStartedAt: string;
+    recoveredAt: string;
+    claimedAt: string;
+  } | null;
 };
 
 export type RefreshRecovery = {
@@ -92,6 +98,9 @@ export function freezeTrackerState(state: TrackerState): ReadonlyTrackerState {
     Object.freeze(recovery);
   }
   Object.freeze(state.refreshHealth.pendingRecoveries);
+  if (state.refreshHealth.recoveryClaim) {
+    Object.freeze(state.refreshHealth.recoveryClaim);
+  }
   Object.freeze(state.refreshHealth);
   return Object.freeze(state);
 }
@@ -144,7 +153,9 @@ export function clearRefreshFailures(
       firstFailureAt: null,
       lastFailureAt: null,
       alertSentAt: null,
+      failureAlertClaimedAt: null,
       pendingRecoveries,
+      recoveryClaim: replacement.refreshHealth.recoveryClaim,
     },
   };
 }
@@ -174,7 +185,9 @@ export function recordRefreshFailure(
       firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
+      failureAlertClaimedAt: state.refreshHealth.failureAlertClaimedAt,
       pendingRecoveries: replacement.refreshHealth.pendingRecoveries,
+      recoveryClaim: replacement.refreshHealth.recoveryClaim,
     },
   };
 }

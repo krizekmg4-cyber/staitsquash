@@ -22,7 +22,9 @@ const healthyState = (): TrackerState => ({
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    failureAlertClaimedAt: null,
     pendingRecoveries: [],
+    recoveryClaim: null,
   },
 });
 
@@ -379,6 +381,84 @@ test("refresh route sends matching failure and recovery webhook payloads once", 
   }
 });
 
+test("refresh route records feed merge rejection as a refresh failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = {
+    threshold: process.env["CLUB_LOCKER_ALERT_THRESHOLD"],
+    scheduleUrl: process.env["CLUB_LOCKER_SCHEDULE_URL"],
+    webhookUrl: process.env["STAFF_ALERT_WEBHOOK_URL"],
+  };
+  const state = healthyState();
+  state.matches = [{
+    id: "local-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Local opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: null,
+  }];
+  let webhookRequests = 0;
+
+  process.env["CLUB_LOCKER_ALERT_THRESHOLD"] = "1";
+  process.env["CLUB_LOCKER_SCHEDULE_URL"] = "https://schedule.test/feed";
+  process.env["STAFF_ALERT_WEBHOOK_URL"] = "https://alerts.test/hook";
+  globalThis.fetch = async (input) => {
+    if (String(input) === "https://schedule.test/feed") {
+      return Response.json({
+        matches: [{
+          externalId: "external-match",
+          playerId: "player-1",
+          opponent: "Imported opponent",
+          startsAt: "2026-09-16T10:30:00.000Z",
+          endsAt: "2026-09-16T11:15:00.000Z",
+          venue: "Venue",
+          court: "Court 2",
+        }],
+      });
+    }
+    webhookRequests += 1;
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    await withTrackerServer(state, async (url) => {
+      const response = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(response.status, 502);
+      assert.match(
+        String((await response.json() as { error: string }).error),
+        /overlapping a retained match/,
+      );
+
+      const health = await originalFetch(`${url}/tracker/health`);
+      assert.equal(health.status, 200);
+      assert.equal(
+        (await health.json() as { consecutiveFailures: number })
+          .consecutiveFailures,
+        1,
+      );
+      assert.equal(webhookRequests, 1);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries({
+      CLUB_LOCKER_ALERT_THRESHOLD: originalEnvironment.threshold,
+      CLUB_LOCKER_SCHEDULE_URL: originalEnvironment.scheduleUrl,
+      STAFF_ALERT_WEBHOOK_URL: originalEnvironment.webhookUrl,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("refresh route succeeds while a recovery webhook is retried until delivered", async () => {
   const originalFetch = globalThis.fetch;
   const originalEnvironment = {
@@ -626,6 +706,107 @@ test("overlapping refresh requests deliver a queued recovery exactly once", asyn
       );
     });
   } finally {
+    releaseWebhook();
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries({
+      CLUB_LOCKER_SCHEDULE_URL: originalEnvironment.scheduleUrl,
+      STAFF_ALERT_WEBHOOK_URL: originalEnvironment.webhookUrl,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("slow schedule and webhook requests do not delay match edits", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = {
+    scheduleUrl: process.env["CLUB_LOCKER_SCHEDULE_URL"],
+    webhookUrl: process.env["STAFF_ALERT_WEBHOOK_URL"],
+  };
+  const state = healthyState();
+  state.matches = [{
+    id: "match-1",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: null,
+  }];
+  state.refreshHealth.pendingRecoveries = [{
+    failedAttempts: 2,
+    outageStartedAt: "2026-09-16T09:00:00.000Z",
+    recoveredAt: "2026-09-16T09:10:00.000Z",
+    outageDurationMs: 10 * 60_000,
+  }];
+
+  let releaseSchedule!: () => void;
+  const scheduleBlocked = new Promise<void>((resolve) => {
+    releaseSchedule = resolve;
+  });
+  let markScheduleStarted!: () => void;
+  const scheduleStarted = new Promise<void>((resolve) => {
+    markScheduleStarted = resolve;
+  });
+  let releaseWebhook!: () => void;
+  const webhookBlocked = new Promise<void>((resolve) => {
+    releaseWebhook = resolve;
+  });
+  let markWebhookStarted!: () => void;
+  const webhookStarted = new Promise<void>((resolve) => {
+    markWebhookStarted = resolve;
+  });
+
+  process.env["CLUB_LOCKER_SCHEDULE_URL"] = "https://schedule.test/feed";
+  process.env["STAFF_ALERT_WEBHOOK_URL"] = "https://alerts.test/hook";
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url === "https://schedule.test/feed") {
+      markScheduleStarted();
+      await scheduleBlocked;
+      return Response.json({ matches: [] });
+    }
+    if (url === "https://alerts.test/hook") {
+      markWebhookStarted();
+      await webhookBlocked;
+      return new Response(null, { status: 204 });
+    }
+    return originalFetch(input);
+  };
+
+  try {
+    await withTrackerServer(state, async (url) => {
+      const refresh = originalFetch(`${url}/tracker/refresh`, { method: "POST" });
+      await scheduleStarted;
+
+      const editDuringSchedule = await originalFetch(`${url}/matches/match-1`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ court: "Court 2" }),
+      });
+      assert.equal(editDuringSchedule.status, 200);
+
+      releaseSchedule();
+      await webhookStarted;
+
+      const editDuringWebhook = await originalFetch(`${url}/matches/match-1`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ court: "Court 3" }),
+      });
+      assert.equal(editDuringWebhook.status, 200);
+
+      releaseWebhook();
+      assert.equal((await refresh).status, 200);
+    });
+  } finally {
+    releaseSchedule();
     releaseWebhook();
     globalThis.fetch = originalFetch;
     for (const [key, value] of Object.entries({

@@ -22,12 +22,12 @@ import {
   type PersistedTrackerState as PersistedTrackerSnapshot,
 } from "@workspace/api-zod";
 import {
-  clearPendingRecovery,
+  clearRefreshFailures,
   cloneTrackerState,
   freezeTrackerState,
+  mergeClubLockerFeed,
   parseClubLockerFeed,
   recordRefreshFailure,
-  refreshTrackerState,
   type ReadonlyClubLockerFeed,
   type ReadonlyTrackerState,
   type RefreshRecovery,
@@ -99,7 +99,9 @@ const INITIAL_STATE: TrackerState = {
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    failureAlertClaimedAt: null,
     pendingRecoveries: [],
+    recoveryClaim: null,
   },
 };
 
@@ -128,7 +130,16 @@ export function parsePersistedTrackerState(
 function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
   const alertThreshold = getAlertThreshold();
   const storedBranding = state.branding;
-  const storedRefreshHealth = state.refreshHealth;
+  const storedRefreshHealth = state.refreshHealth as
+    | (NonNullable<typeof state.refreshHealth> & {
+        failureAlertClaimedAt?: string | null;
+        recoveryClaim?: {
+          outageStartedAt: string;
+          recoveredAt: string;
+          claimedAt: string;
+        } | null;
+      })
+    | undefined;
   return freezeTrackerState({
     players: state.players.map((player) => ({ ...player })),
     coaches: state.coaches.map((coach) => ({ ...coach })),
@@ -165,6 +176,11 @@ function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
             (storedRefreshHealth?.pendingRecovery
               ? [{ ...storedRefreshHealth.pendingRecovery }]
               : []),
+          failureAlertClaimedAt:
+            storedRefreshHealth?.failureAlertClaimedAt ?? null,
+          recoveryClaim: storedRefreshHealth?.recoveryClaim
+            ? { ...storedRefreshHealth.recoveryClaim }
+            : null,
         }
       : {
           consecutiveFailures: 0,
@@ -172,7 +188,9 @@ function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
           firstFailureAt: null,
           lastFailureAt: null,
           alertSentAt: null,
+          failureAlertClaimedAt: null,
           pendingRecoveries: [],
+          recoveryClaim: null,
         },
   });
 }
@@ -303,6 +321,14 @@ function formatDuration(durationMs: number): string {
   }`;
 }
 
+const NOTIFICATION_CLAIM_LEASE_MS = 30_000;
+
+function isActiveNotificationClaim(claimedAt: string | null | undefined): boolean {
+  if (!claimedAt) return false;
+  const age = Date.now() - Date.parse(claimedAt);
+  return Number.isFinite(age) && age >= 0 && age < NOTIFICATION_CLAIM_LEASE_MS;
+}
+
 export function isLogoImage(bytes: Buffer, contentType: string): boolean {
   if (bytes.length === 0 || bytes.length > 5 * 1024 * 1024) return false;
   if (contentType === "image/png") {
@@ -356,20 +382,30 @@ type TrackerRouterDependencies = {
 };
 
 function trackerResponse(state: ReadonlyTrackerState) {
+  const pendingRecoveryNotices =
+    state.refreshHealth.pendingRecoveries.length -
+    (isActiveNotificationClaim(state.refreshHealth.recoveryClaim?.claimedAt)
+      ? 1
+      : 0);
   return {
     ...state,
     branding: state.branding ?? { name: "StaitSquash", logoPath: null },
     refreshHealth: {
       ...state.refreshHealth,
-      pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
+      pendingRecoveryNotices: Math.max(0, pendingRecoveryNotices),
     },
   };
 }
 
 function trackerHealthResponse(state: ReadonlyTrackerState) {
+  const pendingRecoveryNotices =
+    state.refreshHealth.pendingRecoveries.length -
+    (isActiveNotificationClaim(state.refreshHealth.recoveryClaim?.claimedAt)
+      ? 1
+      : 0);
   return {
     ...state.refreshHealth,
-    pendingRecoveryNotices: state.refreshHealth.pendingRecoveries.length,
+    pendingRecoveryNotices: Math.max(0, pendingRecoveryNotices),
   };
 }
 
@@ -619,75 +655,177 @@ export function createTrackerRouter(
   );
 
   router.post("/tracker/refresh", authorizeStaff, async (req, res): Promise<void> => {
-  await coordinateMutation(async (loadLockedState, saveLockedState) => {
-  const alertThreshold = getAlertThreshold();
-  try {
-    const previousState = await loadLockedState();
-    const state = await refreshTrackerState(
-      async () => previousState,
-      fetchClubLockerFeed,
-      saveLockedState,
-      alertThreshold,
-    );
-    let notificationState = state;
-    while (notificationState.refreshHealth.pendingRecoveries.length > 0) {
-      const recovery = notificationState.refreshHealth.pendingRecoveries[0]!;
+    const alertThreshold = getAlertThreshold();
+    const respondToFailure = async (error: unknown): Promise<void> => {
+      const failure = await coordinateMutation(async (loadLockedState, saveLockedState) => {
+        const failedState = recordRefreshFailure(
+          await loadLockedState(),
+          alertThreshold,
+        );
+        const shouldAlert =
+          failedState.refreshHealth.consecutiveFailures >= alertThreshold &&
+          failedState.refreshHealth.alertSentAt === null &&
+          !isActiveNotificationClaim(
+            failedState.refreshHealth.failureAlertClaimedAt,
+          );
+        const alertClaim = shouldAlert ? new Date().toISOString() : null;
+        if (alertClaim) {
+          failedState.refreshHealth.failureAlertClaimedAt = alertClaim;
+        }
+        await saveLockedState(failedState);
+        return { failedState, alertClaim };
+      });
+
+      req.log.warn(
+        {
+          err: error,
+          consecutiveFailures:
+            failure.failedState.refreshHealth.consecutiveFailures,
+          alertThreshold,
+        },
+        "Club Locker refresh failed",
+      );
+
+      if (failure.alertClaim) {
+        try {
+          await alertStaff(failure.failedState, error);
+          await coordinateMutation(async (loadLockedState, saveLockedState) => {
+            const current = cloneTrackerState(await loadLockedState());
+            if (
+              current.refreshHealth.failureAlertClaimedAt === failure.alertClaim
+            ) {
+              current.refreshHealth.alertSentAt = new Date().toISOString();
+              current.refreshHealth.failureAlertClaimedAt = null;
+              await saveLockedState(current);
+            }
+          });
+          req.log.error(
+            {
+              consecutiveFailures:
+                failure.failedState.refreshHealth.consecutiveFailures,
+            },
+            "Staff alerted about repeated Club Locker refresh failures",
+          );
+        } catch (alertError) {
+          await coordinateMutation(async (loadLockedState, saveLockedState) => {
+            const current = cloneTrackerState(await loadLockedState());
+            if (
+              current.refreshHealth.failureAlertClaimedAt === failure.alertClaim
+            ) {
+              current.refreshHealth.failureAlertClaimedAt = null;
+              await saveLockedState(current);
+            }
+          });
+          req.log.error(
+            { err: alertError },
+            "Could not alert staff about refresh failures",
+          );
+        }
+      }
+
+      const message =
+        error instanceof Error ? error.message : "Unknown Club Locker error";
+      res.status(502).json({ error: `Refresh failed: ${message}` });
+    };
+
+    let feed: ReadonlyClubLockerFeed;
+    try {
+      feed = await fetchClubLockerFeed();
+    } catch (error) {
+      await respondToFailure(error);
+      return;
+    }
+
+    let notificationState: ReadonlyTrackerState;
+    try {
+      notificationState = await coordinateMutation(
+        async (loadLockedState, saveLockedState) => {
+          const current = await loadLockedState();
+          const merged = mergeClubLockerFeed(current, feed);
+          const state = isActiveNotificationClaim(
+            current.refreshHealth.failureAlertClaimedAt,
+          )
+            ? merged
+            : clearRefreshFailures(merged, alertThreshold);
+          await saveLockedState(state);
+          return state;
+        },
+      );
+    } catch (error) {
+      await respondToFailure(error);
+      return;
+    }
+
+    while (true) {
+      const claimed = await coordinateMutation(
+        async (loadLockedState, saveLockedState) => {
+          const current = await loadLockedState();
+          const recovery = current.refreshHealth.pendingRecoveries[0];
+          if (
+            !recovery ||
+            current.refreshHealth.consecutiveFailures > 0 ||
+            isActiveNotificationClaim(
+              current.refreshHealth.recoveryClaim?.claimedAt,
+            )
+          ) {
+            return null;
+          }
+          const next = cloneTrackerState(current);
+          const claimedAt = new Date().toISOString();
+          next.refreshHealth.recoveryClaim = {
+            outageStartedAt: recovery.outageStartedAt,
+            recoveredAt: recovery.recoveredAt,
+            claimedAt,
+          };
+          await saveLockedState(next);
+          return { recovery: { ...recovery }, claimedAt };
+        },
+      );
+      if (!claimed) break;
+
       try {
-        await alertStaffOfRecovery(recovery);
-        notificationState = clearPendingRecovery(notificationState);
-        await saveLockedState(notificationState);
-        req.log.info(
-          {
-            failedAttempts: recovery.failedAttempts,
-            outageDurationMs: recovery.outageDurationMs,
-          },
-          "Staff alerted that Club Locker refresh recovered",
-        );
+        await alertStaffOfRecovery(claimed.recovery);
+        await coordinateMutation(async (loadLockedState, saveLockedState) => {
+          const current = cloneTrackerState(await loadLockedState());
+          if (current.refreshHealth.recoveryClaim?.claimedAt !== claimed.claimedAt) {
+            return;
+          }
+          const index = current.refreshHealth.pendingRecoveries.findIndex(
+            (item) =>
+              item.outageStartedAt === claimed.recovery.outageStartedAt &&
+              item.recoveredAt === claimed.recovery.recoveredAt,
+          );
+          if (index >= 0) current.refreshHealth.pendingRecoveries.splice(index, 1);
+          current.refreshHealth.recoveryClaim = null;
+          await saveLockedState(current);
+        });
+          req.log.info(
+            {
+              failedAttempts: claimed.recovery.failedAttempts,
+              outageDurationMs: claimed.recovery.outageDurationMs,
+            },
+            "Staff alerted that Club Locker refresh recovered",
+          );
       } catch (alertError) {
-        req.log.error(
-          { err: alertError },
-          "Could not alert staff about refresh recovery",
-        );
+        await coordinateMutation(async (loadLockedState, saveLockedState) => {
+          const current = cloneTrackerState(await loadLockedState());
+          if (current.refreshHealth.recoveryClaim?.claimedAt === claimed.claimedAt) {
+            current.refreshHealth.recoveryClaim = null;
+            await saveLockedState(current);
+          }
+        });
+          req.log.error(
+            { err: alertError },
+            "Could not alert staff about refresh recovery",
+          );
         break;
       }
     }
-    res.json(RefreshTrackerResponse.parse(trackerResponse(notificationState)));
-  } catch (error) {
-    const failedState = recordRefreshFailure(
-      await loadLockedState(),
-      alertThreshold,
-    );
-    await saveLockedState(failedState);
-    req.log.warn(
-      {
-        err: error,
-        consecutiveFailures: failedState.refreshHealth.consecutiveFailures,
-        alertThreshold,
-      },
-      "Club Locker refresh failed",
-    );
 
-    const shouldAlert =
-      failedState.refreshHealth.consecutiveFailures >= alertThreshold &&
-      failedState.refreshHealth.alertSentAt === null;
-    if (shouldAlert) {
-      try {
-        await alertStaff(failedState, error);
-        failedState.refreshHealth.alertSentAt = new Date().toISOString();
-        await saveLockedState(failedState);
-        req.log.error(
-          { consecutiveFailures: failedState.refreshHealth.consecutiveFailures },
-          "Staff alerted about repeated Club Locker refresh failures",
-        );
-      } catch (alertError) {
-        req.log.error({ err: alertError }, "Could not alert staff about refresh failures");
-      }
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown Club Locker error";
-    res.status(502).json({ error: `Refresh failed: ${message}` });
-  }
-  });
+    notificationState = await loadState();
+    res.json(
+      RefreshTrackerResponse.parse(trackerResponse(notificationState)),
+    );
   });
 
   return router;

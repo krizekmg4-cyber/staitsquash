@@ -87,7 +87,9 @@ const stateWith = (...matches: TrackerState["matches"]): TrackerState => ({
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    failureAlertClaimedAt: null,
     pendingRecoveries: [],
+    recoveryClaim: null,
   },
 });
 
@@ -831,7 +833,9 @@ test("counts consecutive refresh failures and preserves alert state", () => {
     firstFailureAt: "2026-09-16T12:00:00.000Z",
     lastFailureAt: "2026-09-16T12:05:00.000Z",
     alertSentAt: "2026-09-16T12:01:00.000Z",
+    failureAlertClaimedAt: null,
     pendingRecoveries: [],
+    recoveryClaim: null,
   });
 });
 
@@ -854,12 +858,14 @@ test("successful refresh clears the failure condition and queues its recovery", 
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
+    failureAlertClaimedAt: null,
     pendingRecoveries: [{
       failedAttempts: 1,
       outageStartedAt: failing.refreshHealth.firstFailureAt,
       recoveredAt: "2026-09-16T12:20:00.000Z",
       outageDurationMs: 20 * 60_000,
     }],
+    recoveryClaim: null,
   });
 });
 
