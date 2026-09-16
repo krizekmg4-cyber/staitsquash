@@ -7,6 +7,8 @@ import {
   parsePersistedTrackerState,
 } from "./tracker.ts";
 import type { TrackerState } from "../lib/club-locker.ts";
+import { createRequireStaff } from "../middlewares/requireStaff.ts";
+import { getClerkProxyHost } from "../middlewares/clerkProxyMiddleware.ts";
 
 const healthyState = (): TrackerState => ({
   players: [{ id: "player-1", name: "Player One" }],
@@ -31,6 +33,75 @@ test("logo validation checks actual bytes rather than claimed MIME type", () => 
     true,
   );
   assert.equal(isLogoImage(Buffer.alloc(5 * 1024 * 1024 + 1), "image/png"), false);
+});
+
+test("staff routes distinguish anonymous, unapproved, and approved accounts", async () => {
+  const cases: Array<[string | null, boolean, number]> = [
+    [null, false, 401],
+    ["user_unapproved", false, 403],
+    ["user_staff", true, 200],
+  ];
+
+  for (const [userId, approved, expectedStatus] of cases) {
+    const state = healthyState();
+    const app = express();
+    app.use(express.json());
+    app.use(createTrackerRouter({
+      getState: async () => structuredClone(state),
+      saveState: async () => undefined,
+      authorizeStaff: createRequireStaff({
+        getUserId: () => userId,
+        isApprovedStaff: async (candidate) => candidate === "user_staff" && approved,
+      }),
+    }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve, reject) => {
+      server.once("listening", resolve);
+      server.once("error", reject);
+    });
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/tracker`);
+      assert.equal(response.status, expectedStatus);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error ? reject(error) : resolve()),
+      );
+    }
+  }
+});
+
+test("Clerk proxy ignores spoofed forwarded hosts", () => {
+  const previousDomains = process.env.REPLIT_DOMAINS;
+  const previousNodeEnvironment = process.env.NODE_ENV;
+  process.env.REPLIT_DOMAINS = "tracker.example.com";
+  process.env.NODE_ENV = "production";
+  try {
+    assert.equal(
+      getClerkProxyHost({
+        headers: {
+          host: "tracker.example.com",
+          "x-forwarded-host": "attacker.example",
+        },
+      }),
+      "tracker.example.com",
+    );
+    assert.equal(
+      getClerkProxyHost({
+        headers: {
+          host: "attacker.example",
+          "x-forwarded-host": "attacker.example",
+        },
+      }),
+      undefined,
+    );
+  } finally {
+    if (previousDomains === undefined) delete process.env.REPLIT_DOMAINS;
+    else process.env.REPLIT_DOMAINS = previousDomains;
+    if (previousNodeEnvironment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnvironment;
+  }
 });
 
 test("persisted tracker validation identifies malformed nested records", () => {
@@ -119,6 +190,7 @@ async function withTrackerServer(
       saveState: async (next) => {
         state = structuredClone(next);
       },
+      authorizeStaff: (_req, _res, next) => next(),
     }),
   );
 
@@ -521,6 +593,7 @@ test("overlapping match edit and report save preserve both changes", async () =>
         }
         state = structuredClone(next);
       },
+      authorizeStaff: (_req, _res, next) => next(),
     }),
   );
 
@@ -630,6 +703,7 @@ test("independent API instances coordinate overlapping tracker writes", async ()
         state = structuredClone(next);
       },
       mutateState,
+      authorizeStaff: (_req, _res, next) => next(),
     }));
     return app;
   };
@@ -699,6 +773,7 @@ test("coach report audio upload stores bytes and returns its object path", async
         saved.push({ path, bytes, contentType });
       },
     },
+    authorizeStaff: (_req, _res, next) => next(),
   }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve, reject) => {

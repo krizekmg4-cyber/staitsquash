@@ -1,8 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import App from './App';
-
 afterEach(() => cleanup());
 
 const initialHealth = {
@@ -43,6 +41,7 @@ describe('tracker health polling', () => {
   let healthResponses: Array<typeof initialHealth>;
 
   beforeEach(() => {
+    signedIn = true;
     vi.useFakeTimers({ shouldAdvanceTime: true });
     healthResponses = [
       initialHealth,
@@ -65,6 +64,7 @@ describe('tracker health polling', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -222,4 +222,14 @@ describe('tracker logo settings', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('shows the public staff landing page when signed out', () => {
+    signedIn = false;
+    render(<App />);
+    expect(screen.getByRole('heading', { name: 'StaitSquash tracker' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Staff sign in' })).toBeInTheDocument();
+    expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
+  });
 });
+
+let signedIn = true;

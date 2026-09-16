@@ -1,4 +1,4 @@
-import express, { Router, type IRouter } from "express";
+import express, { Router, type IRouter, type RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
@@ -34,6 +34,7 @@ import {
   type TrackerState,
 } from "../lib/club-locker.js";
 import { ObjectStorageService } from "../lib/object-storage.js";
+import { requireStaff } from "../middlewares/requireStaff.js";
 
 const INITIAL_STATE: TrackerState = {
   players: [{ id: "cameron-stait", name: "Cameron Stait" }],
@@ -351,6 +352,7 @@ type TrackerRouterDependencies = {
   saveState: (state: TrackerState) => Promise<void>;
   mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
   objectStorage?: Pick<ObjectStorageService, "saveObject">;
+  authorizeStaff?: RequestHandler;
 };
 
 function trackerResponse(state: ReadonlyTrackerState) {
@@ -380,6 +382,7 @@ export function createTrackerRouter(
 ): IRouter {
   const router: IRouter = Router();
   const objectStorage = dependencies.objectStorage ?? new ObjectStorageService();
+  const authorizeStaff = dependencies.authorizeStaff ?? requireStaff;
   const { getState: loadState, saveState: persistState } = dependencies;
   let mutationQueue: Promise<void> = Promise.resolve();
 
@@ -399,11 +402,11 @@ export function createTrackerRouter(
     return serializeMutation(() => operation(loadState, persistState));
   }
 
-  router.get("/tracker", async (_req, res): Promise<void> => {
+  router.get("/tracker", authorizeStaff, async (_req, res): Promise<void> => {
     res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
   });
 
-  router.get("/tracker/health", async (_req, res): Promise<void> => {
+  router.get("/tracker/health", authorizeStaff, async (_req, res): Promise<void> => {
     res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
   });
 
@@ -430,7 +433,7 @@ export function createTrackerRouter(
     }));
   });
 
-  router.put("/tracker/settings", async (req, res): Promise<void> => {
+  router.put("/tracker/settings", authorizeStaff, async (req, res): Promise<void> => {
     const body = SaveTrackerSettingsBody.safeParse(req.body);
     if (!body.success) {
       res.status(400).json({ error: body.error.message });
@@ -457,6 +460,7 @@ export function createTrackerRouter(
 
   router.post(
     "/tracker/logo",
+    authorizeStaff,
     express.raw({ type: ["image/png", "image/jpeg", "image/webp", "image/gif"], limit: "5mb" }),
     async (req, res): Promise<void> => {
       if (!Buffer.isBuffer(req.body) || !isLogoImage(req.body, req.get("content-type") ?? "")) {
@@ -474,7 +478,7 @@ export function createTrackerRouter(
     },
   );
 
-  router.patch("/matches/:matchId", async (req, res): Promise<void> => {
+  router.patch("/matches/:matchId", authorizeStaff, async (req, res): Promise<void> => {
     const params = UpdateMatchParams.safeParse(req.params);
     const body = UpdateMatchBody.safeParse(req.body);
     if (!params.success) {
@@ -501,7 +505,7 @@ export function createTrackerRouter(
     });
   });
 
-  router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
+  router.put("/matches/:matchId/report", authorizeStaff, async (req, res): Promise<void> => {
     const params = SaveCoachReportParams.safeParse(req.params);
     const body = SaveCoachReportBody.safeParse(req.body);
     if (!params.success) {
@@ -540,6 +544,7 @@ export function createTrackerRouter(
 
   router.post(
     "/matches/:matchId/report/audio",
+    authorizeStaff,
     express.raw({ type: ["audio/webm", "audio/ogg", "audio/mp4"], limit: "25mb" }),
     async (req, res): Promise<void> => {
       const params = UploadCoachReportAudioParams.safeParse(req.params);
@@ -572,7 +577,7 @@ export function createTrackerRouter(
     },
   );
 
-  router.post("/tracker/refresh", async (req, res): Promise<void> => {
+  router.post("/tracker/refresh", authorizeStaff, async (req, res): Promise<void> => {
   await coordinateMutation(async (loadLockedState, saveLockedState) => {
   const alertThreshold = getAlertThreshold();
   try {

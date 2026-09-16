@@ -38,6 +38,9 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
+import { ClerkProvider, SignIn, Show, useClerk } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
 
 type ViewMode = 'players' | 'coaches';
 
@@ -108,6 +111,7 @@ function FailureState({ retry }: { retry: () => void }) {
 }
 
 function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void }) {
+  const { signOut } = useClerk();
   return (
     <header className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-8">
@@ -124,7 +128,7 @@ function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerSt
         <div className="flex items-center gap-2"><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
           <RefreshCw size={14} className={cx(refreshing && 'animate-spin')} />
           <span className="hidden sm:inline">{refreshing ? 'Updating' : 'Refresh draw'}</span>
-        </button></div>
+        </button><button type="button" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent">Sign out</button></div>
       </div>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 pb-4 sm:px-8">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-foreground/50">
@@ -770,13 +774,32 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/players/:playerId" component={PlayerView} />
-        <Route path="/" component={TrackerPage} />
+        <Route path="/sign-in/*?" component={SignInPage} />
+        <Route path="/" component={StaffHome} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>
   );
 }
 
+function StaffHome() {
+  return (
+    <>
+      <Show when="signed-in"><TrackerPage /></Show>
+      <Show when="signed-out">
+        <main className="noise flex min-h-[100dvh] items-center justify-center bg-background px-5">
+          <section className="w-full max-w-md rounded-[26px] border border-card-border bg-card p-8 text-center shadow-xl">
+            <img src={`${basePath}/logo.svg`} alt="" className="mx-auto h-16 w-16 rounded-2xl" />
+            <p className="mt-6 font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Staff access</p>
+            <h1 className="mt-2 font-serif text-4xl font-bold">StaitSquash tracker</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">Approved staff must sign in before managing matches, reports, coaches, and branding.</p>
+            <a href={`${basePath}/sign-in`} className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">Staff sign in</a>
+          </section>
+        </main>
+      </Show>
+    </>
+  );
+}
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
@@ -787,8 +810,8 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+        <WouterRouter base={basePath}>
+          <ClerkRoutes />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>
@@ -797,3 +820,90 @@ function App() {
 }
 
 export default App;
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+function SignInPage() {
+  return (
+    <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-4">
+      <SignIn routing="path" path={`${basePath}/sign-in`} />
+    </div>
+  );
+}
+
+function ClerkQueryClientCacheInvalidator() {
+  const { addListener } = useClerk();
+  const queryClient = useQueryClient();
+  const previousUserId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => addListener(({ user }) => {
+    const userId = user?.id ?? null;
+    if (previousUserId.current !== undefined && previousUserId.current !== userId) {
+      queryClient.clear();
+    }
+    previousUserId.current = userId;
+  }), [addListener, queryClient]);
+
+  return null;
+}
+
+function stripBase(path: string): string {
+  return basePath && path.startsWith(basePath)
+    ? path.slice(basePath.length) || '/'
+    : path;
+}
+
+const clerkProxyUrl = resolveClerkProxyUrl(
+  import.meta.env.VITE_CLERK_PROXY_URL,
+  import.meta.env.PROD,
+);
+
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
+
+export function resolveClerkProxyUrl(
+  configured: string | undefined,
+  production: boolean,
+): string {
+  return configured || (production ? '/api/__clerk' : '');
+}
+
+function ClerkRoutes() {
+  const [, setLocation] = useLocation();
+  return (
+    <ClerkProvider
+      publishableKey={clerkPubKey}
+      proxyUrl={clerkProxyUrl}
+      appearance={{
+        theme: shadcn,
+        cssLayerName: 'clerk',
+        options: {
+          logoPlacement: 'inside',
+          logoLinkUrl: basePath || '/',
+          logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+        },
+        variables: {
+          colorPrimary: '#17352f',
+          colorForeground: '#17352f',
+          colorMutedForeground: '#66736f',
+          colorBackground: '#fffdf7',
+          colorInput: '#ffffff',
+          colorInputForeground: '#17352f',
+          colorDanger: '#b5412d',
+          colorNeutral: '#d9dfdc',
+          fontFamily: 'system-ui, sans-serif',
+          borderRadius: '0.75rem',
+        },
+      }}
+      signInUrl={`${basePath}/sign-in`}
+      localization={{ signIn: { start: { title: 'Staff sign in', subtitle: 'Access the StaitSquash match desk' } } }}
+      routerPush={(to) => setLocation(stripBase(to))}
+      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
+    >
+      <ClerkQueryClientCacheInvalidator />
+      <Router />
+    </ClerkProvider>
+  );
+}
