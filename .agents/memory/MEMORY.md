@@ -1,1 +1,2 @@
 - [Read-only state boundaries](readonly-state-boundaries.md) — mutable replacement state must not retain nested references from read-only loaded state.
+- [API bundle smoke validation](api-bundle-smoke-validation.md) — production bundle validation must launch the output on an isolated positive port and own process cleanup.
