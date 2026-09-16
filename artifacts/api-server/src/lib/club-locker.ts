@@ -410,8 +410,9 @@ export async function refreshTrackerState(
   persistState: (state: TrackerState) => Promise<void>,
   alertThreshold = 3,
 ): Promise<TrackerState> {
+  const feed = parseClubLockerFeed(await loadFeed());
   const state = clearRefreshFailures(
-    mergeClubLockerFeed(await loadState(), await loadFeed()),
+    mergeClubLockerFeed(await loadState(), feed),
     alertThreshold,
   );
   await persistState(state);

@@ -411,7 +411,7 @@ test("rescheduled imported matches cannot overlap absent saved history", async (
   }
 });
 
-test("schedule and player conflicts never change stored tracker state", async () => {
+test("refresh validates typed feeds before merging or persisting them", async () => {
   const invalidFeeds = [
     {
       matches: [
@@ -453,7 +453,7 @@ test("schedule and player conflicts never change stored tracker state", async ()
     await assert.rejects(
       refreshTrackerState(
         async () => original,
-        async () => parseClubLockerFeed(invalidFeed),
+        async () => invalidFeed,
         async () => {
           persisted = true;
         },
