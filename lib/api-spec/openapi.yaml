@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: tracker
+    description: Tournament tracker operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,78 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /tracker:
+    get:
+      operationId: getTracker
+      tags: [tracker]
+      summary: Get the complete tournament tracker
+      responses:
+        "200":
+          description: Current tracker state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
+  /matches/{matchId}:
+    patch:
+      operationId: updateMatch
+      tags: [tracker]
+      summary: Update match details, assignment, status, or result
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchUpdate"
+      responses:
+        "200":
+          description: Updated match
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+  /matches/{matchId}/report:
+    put:
+      operationId: saveCoachReport
+      tags: [tracker]
+      summary: Save exactly three coach observations
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachReportInput"
+      responses:
+        "200":
+          description: Saved report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachReport"
+  /tracker/refresh:
+    post:
+      operationId: refreshTracker
+      tags: [tracker]
+      summary: Mark tracker as refreshed for future Club Locker integration
+      responses:
+        "200":
+          description: Refreshed tracker state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +107,94 @@ components:
           type: string
       required:
         - status
+    Coach:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    Player:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    CoachReport:
+      type: object
+      required: [matchId, observations, updatedAt]
+      properties:
+        matchId: { type: string }
+        observations:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: string }
+        transcript:
+          type: ["string", "null"]
+        updatedAt: { type: string, format: date-time }
+    CoachReportInput:
+      type: object
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: string, minLength: 1, maxLength: 220 }
+        transcript:
+          type: ["string", "null"]
+    Match:
+      type: object
+      required: [id, externalId, playerId, opponent, startsAt, endsAt, venue, court, coachId, status]
+      properties:
+        id: { type: string }
+        externalId: { type: ["string", "null"] }
+        playerId: { type: string }
+        opponent: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        venue: { type: string }
+        court: { type: string }
+        coachId: { type: string }
+        status:
+          type: string
+          enum: [upcoming, completed]
+        result: { type: ["string", "null"] }
+        report:
+          oneOf:
+            - $ref: "#/components/schemas/CoachReport"
+            - type: "null"
+    MatchUpdate:
+      type: object
+      properties:
+        opponent: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        venue: { type: string }
+        court: { type: string }
+        coachId: { type: string }
+        status:
+          type: string
+          enum: [upcoming, completed]
+        result: { type: ["string", "null"] }
+    TrackerState:
+      type: object
+      required: [players, coaches, matches, lastUpdatedAt, source]
+      properties:
+        players:
+          type: array
+          items:
+            $ref: "#/components/schemas/Player"
+        coaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coach"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+        lastUpdatedAt: { type: string, format: date-time }
+        source:
+          type: string
+          enum: [sample, club-locker]
 

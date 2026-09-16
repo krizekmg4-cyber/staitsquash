@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "StaitSquash Player Tracker"
+description = "A mobile-first tournament tracker for StaitSquash players and coaches, showing upcoming match details, coach assignments, schedule conflicts, results, and concise post-match coach reports with persistent editable data."
+version = "1.0.0"
+id = "artifacts/staitsquash-tracker"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20442
+
+[services.development]
+run = "pnpm --filter @workspace/staitsquash-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/staitsquash-tracker", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/staitsquash-tracker/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20442"
+BASE_PATH = "/"

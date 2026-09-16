@@ -1,0 +1,449 @@
+import { useMemo, useRef, useState } from 'react';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import {
+  AlertCircle,
+  ArrowRight,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  CircleUserRound,
+  Clock3,
+  Edit3,
+  Mic,
+  MicOff,
+  RefreshCw,
+  Save,
+  Trophy,
+  UsersRound,
+  X,
+} from 'lucide-react';
+import {
+  getGetTrackerQueryKey,
+  useGetTracker,
+  useRefreshTracker,
+  useSaveCoachReport,
+  useUpdateMatch,
+} from '@workspace/api-client-react';
+import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-react';
+import { type ReactNode, useEffect } from 'react';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import NotFound from '@/pages/not-found';
+import { Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
+
+const queryClient = new QueryClient();
+
+type ViewMode = 'players' | 'coaches';
+
+const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
+
+const formatDay = (value: string) =>
+  new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(value));
+
+const formatTime = (value: string) =>
+  new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+
+const formatInputDate = (value: string) => {
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+const getInitials = (name: string) =>
+  name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+
+function TrackerSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 pb-10 pt-6 sm:px-8">
+      <div className="h-8 w-52 animate-pulse rounded-lg bg-muted" />
+      <div className="mt-6 grid gap-3 md:grid-cols-3">
+        {[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl bg-muted" />)}
+      </div>
+      <div className="mt-7 h-14 animate-pulse rounded-2xl bg-muted" />
+      <div className="mt-5 space-y-3">
+        {[1, 2, 3, 4].map((item) => <div key={item} className="h-40 animate-pulse rounded-2xl bg-muted" />)}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ onRefresh }: { onRefresh: () => void }) {
+  return (
+    <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-secondary text-primary">
+        <CalendarDays size={27} strokeWidth={1.8} />
+      </div>
+      <p className="mt-5 font-mono text-[11px] uppercase tracking-[.24em] text-muted-foreground">No matches yet</p>
+      <h2 className="mt-2 font-serif text-3xl font-bold tracking-tight">The courts are quiet.</h2>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">Refresh the tracker when the draw is ready. Your players and coaches will appear here in match order.</p>
+      <button data-testid="button-empty-refresh" onClick={onRefresh} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground transition-transform hover:-translate-y-0.5">
+        <RefreshCw size={16} /> Refresh tracker
+      </button>
+    </div>
+  );
+}
+
+function FailureState({ retry }: { retry: () => void }) {
+  return (
+    <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-accent/20 text-accent">
+        <AlertCircle size={28} />
+      </div>
+      <h2 className="mt-5 font-serif text-3xl font-bold tracking-tight">The locker room is offline.</h2>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">We couldn't read today's draw. Try again before heading to court.</p>
+      <button data-testid="button-error-retry" onClick={retry} className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold transition-colors hover:bg-muted">
+        <RefreshCw size={16} /> Try again
+      </button>
+    </div>
+  );
+}
+
+function Header({ state, onRefresh, refreshing }: { state: TrackerState; onRefresh: () => void; refreshing: boolean }) {
+  return (
+    <header className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-8">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
+            <span className="font-serif text-xl font-black italic">S</span>
+            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-sidebar bg-accent" />
+          </div>
+          <div>
+            <p className="font-serif text-lg font-bold leading-none tracking-tight">StaitSquash</p>
+            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker</p>
+          </div>
+        </div>
+        <button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
+          <RefreshCw size={14} className={cx(refreshing && 'animate-spin')} />
+          <span className="hidden sm:inline">{refreshing ? 'Updating' : 'Refresh draw'}</span>
+        </button>
+      </div>
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 pb-4 sm:px-8">
+        <p className="font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-foreground/50">
+          {state.source === 'club-locker' ? 'Club Locker' : 'Sample draw'} <span className="mx-1 text-sidebar-primary">·</span> updated {formatTime(state.lastUpdatedAt)}
+        </p>
+        <div className="flex -space-x-2">
+          {state.players.slice(0, 3).map((player) => (
+            <div data-testid={`avatar-player-${player.id}`} key={player.id} title={player.name} className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-sidebar bg-sidebar-accent font-mono text-[9px] font-bold text-sidebar-primary">
+              {getInitials(player.name)}
+            </div>
+          ))}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players: Player[]; coaches: Coach[] }) {
+  const upcoming = matches.filter((match) => match.status === 'upcoming').length;
+  const completed = matches.filter((match) => match.status === 'completed').length;
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div data-testid="stat-players" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Players</p>
+        <p className="mt-2 font-serif text-2xl font-bold">{players.length}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">on the draw</p>
+      </div>
+      <div data-testid="stat-upcoming" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">On deck</p>
+        <p className="mt-2 font-serif text-2xl font-bold text-accent">{upcoming}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">upcoming matches</p>
+      </div>
+      <div data-testid="stat-coaches" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Coaches</p>
+        <p className="mt-2 font-serif text-2xl font-bold">{coaches.length}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{completed} reports filed</p>
+      </div>
+    </div>
+  );
+}
+
+function ConflictNotice({ matches, players, coaches }: { matches: Match[]; players: Player[]; coaches: Coach[] }) {
+  const conflicts = useMemo(() => {
+    const sorted = [...matches].filter((match) => match.status === 'upcoming').sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
+    const output: Array<{ first: Match; second: Match }> = [];
+    sorted.forEach((first, index) => sorted.slice(index + 1).forEach((second) => {
+      const overlaps = new Date(second.startsAt) < new Date(first.endsAt) && new Date(second.endsAt) > new Date(first.startsAt);
+      if (overlaps && first.coachId === second.coachId) output.push({ first, second });
+    }));
+    return output;
+  }, [matches]);
+  if (!conflicts.length) return null;
+  const coach = coaches.find((item) => item.id === conflicts[0].first.coachId);
+  const firstPlayer = players.find((item) => item.id === conflicts[0].first.playerId);
+  const secondPlayer = players.find((item) => item.id === conflicts[0].second.playerId);
+  return (
+    <div data-testid="notice-conflict" className="mt-5 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-primary">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent"><AlertCircle size={17} /></div>
+      <div className="min-w-0">
+        <p className="text-sm font-bold">Coach overlap detected</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'Assigned coach'} is scheduled with {firstPlayer?.name} and {secondPlayer?.name} at overlapping times. Reassign one from its match card.</p>
+      </div>
+    </div>
+  );
+}
+
+function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { match: Match; player?: Player; coach?: Coach; onEdit: (match: Match) => void; onComplete: (match: Match) => void; onReport: (match: Match) => void }) {
+  const isComplete = match.status === 'completed';
+  return (
+    <article data-testid={`card-match-${match.id}`} className={cx('relative overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md', isComplete ? 'border-card-border' : 'border-primary/15')}>
+      <div className={cx('absolute inset-y-0 left-0 w-1', isComplete ? 'bg-muted-foreground/30' : 'bg-secondary')} />
+      <div className="p-4 pl-5 sm:p-5 sm:pl-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold', isComplete ? 'bg-muted text-muted-foreground' : 'bg-secondary text-primary')}>
+              {formatTime(match.startsAt)}
+            </div>
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{formatDay(match.startsAt)}</p>
+              <p data-testid={`text-player-${match.id}`} className="truncate text-sm font-bold">{player?.name ?? 'Unassigned player'}</p>
+            </div>
+          </div>
+          <button data-testid={`button-edit-match-${match.id}`} aria-label={`Edit ${player?.name ?? 'match'} match`} onClick={() => onEdit(match)} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-primary">
+            <Edit3 size={16} />
+          </button>
+        </div>
+        <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">Next court</p>
+            <p data-testid={`text-court-${match.id}`} className="mt-1 font-serif text-xl font-bold">{match.court}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{match.venue}</p>
+          </div>
+          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-muted-foreground"><ArrowRight size={14} /></div>
+          <div className="text-right">
+            <p className="font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">Opponent</p>
+            <p data-testid={`text-opponent-${match.id}`} className="mt-1 truncate font-serif text-xl font-bold">{match.opponent}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{formatTime(match.endsAt)} finish</p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">{coach ? getInitials(coach.name) : '?'}</span>
+            <span>{coach?.name ?? 'Coach not assigned'}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isComplete ? (
+              <button data-testid={`button-report-${match.id}`} onClick={() => onReport(match)} className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-[11px] font-bold text-primary transition-colors hover:bg-secondary/80">
+                {match.report ? <Check size={14} /> : <Mic size={14} />} {match.report ? 'View report' : 'Add report'}
+              </button>
+            ) : (
+              <button data-testid={`button-complete-${match.id}`} onClick={() => onComplete(match)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-[11px] font-bold text-primary-foreground transition-transform hover:-translate-y-0.5">
+                <Trophy size={14} /> Mark complete
+              </button>
+            )}
+          </div>
+        </div>
+        {isComplete && match.result && <p data-testid={`text-result-${match.id}`} className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs font-bold text-primary">Result <span className="ml-2 font-mono">{match.result}</span></p>}
+      </div>
+    </article>
+  );
+}
+
+function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match; coaches: Coach[]; onClose: () => void; onSave: (data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => void; saving: boolean }) {
+  const [form, setForm] = useState({
+    opponent: match.opponent, startsAt: formatInputDate(match.startsAt), endsAt: formatInputDate(match.endsAt), venue: match.venue, court: match.court, coachId: match.coachId,
+  });
+  const field = (name: keyof typeof form, value: string) => setForm((current) => ({ ...current, [name]: value }));
+  return (
+    <Modal title="Edit match" eyebrow="Match details" onClose={onClose}>
+      <div className="space-y-4">
+        <label className="block"><span className="field-label">Opponent</span><input data-testid="input-opponent" value={form.opponent} onChange={(event) => field('opponent', event.target.value)} className="field" /></label>
+        <div className="grid grid-cols-2 gap-3">
+          <label><span className="field-label">Starts</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Ends</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
+        </div>
+        <div className="grid grid-cols-[1fr_100px] gap-3">
+          <label><span className="field-label">Venue</span><input data-testid="input-venue" value={form.venue} onChange={(event) => field('venue', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Court</span><input data-testid="input-court" value={form.court} onChange={(event) => field('court', event.target.value)} className="field" /></label>
+        </div>
+        <label className="block"><span className="field-label">Assign coach</span><span className="relative block"><select data-testid="select-coach" value={form.coachId} onChange={(event) => field('coachId', event.target.value)} className="field appearance-none pr-9">{coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}</select><ChevronDown size={16} className="pointer-events-none absolute right-3 top-3.5 text-muted-foreground" /></span></label>
+        <button data-testid="button-save-match" disabled={saving || !form.opponent || !form.court} onClick={() => onSave(form)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving match…' : 'Save match'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (result: string) => void; saving: boolean }) {
+  const [result, setResult] = useState(match.result ?? '');
+  return (
+    <Modal title="Close out match" eyebrow="Final score" onClose={onClose}>
+      <div className="rounded-xl bg-secondary/50 p-4">
+        <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{match.court} · {formatTime(match.startsAt)}</p>
+        <p className="mt-1 font-serif text-2xl font-bold">{match.opponent}</p>
+      </div>
+      <label className="mt-5 block"><span className="field-label">Result</span><input data-testid="input-result" autoFocus placeholder="e.g. Won 3–1" value={result} onChange={(event) => setResult(event.target.value)} className="field" /></label>
+      <button data-testid="button-save-completion" disabled={saving || !result.trim()} onClick={() => onSave(result.trim())} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Check size={16} /> {saving ? 'Updating card…' : 'Mark completed'}</button>
+    </Modal>
+  );
+}
+
+function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (observations: string[], transcript: string | null) => void; saving: boolean }) {
+  const report = match.report;
+  const [observations, setObservations] = useState<string[]>(report?.observations?.slice(0, 3) ?? ['', '', '']);
+  const [transcript, setTranscript] = useState(report?.transcript ?? '');
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const updateObservation = (index: number, value: string) => setObservations((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    chunksRef.current = [];
+    recorder.ondataavailable = (event) => chunksRef.current.push(event.data);
+    recorder.onstop = () => stream.getTracks().forEach((track) => track.stop());
+    recorder.start();
+    recorderRef.current = recorder;
+    setRecording(true);
+  };
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    setRecording(false);
+  };
+  return (
+    <Modal title="Coach report" eyebrow={`${match.opponent} · three takeaways`} onClose={() => { if (recording) stopRecording(); onClose(); }}>
+      <div className="space-y-3">
+        {observations.map((observation, index) => (
+          <label key={index} className="block">
+            <span className="field-label flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary font-mono text-[10px] text-primary">{index + 1}</span> Observation</span>
+            <textarea data-testid={`input-observation-${index + 1}`} maxLength={220} rows={2} value={observation} onChange={(event) => updateObservation(index, event.target.value)} placeholder={['What worked under pressure?', 'A movement or technical cue', 'Focus for the next match'][index]} className="field min-h-[72px] resize-none" />
+          </label>
+        ))}
+      </div>
+      <div className="mt-5 rounded-xl border border-border bg-muted/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div><p className="text-xs font-bold">Voice note</p><p className="mt-0.5 text-[11px] text-muted-foreground">Use your mic, or type the transcript below.</p></div>
+          <button data-testid="button-toggle-recording" onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
+        </div>
+        {recording && <p data-testid="status-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Recording in progress</p>}
+        <textarea data-testid="input-transcript" rows={2} value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Type a short voice-note transcript…" className="field mt-3 min-h-[64px] resize-none bg-card" />
+      </div>
+      <button data-testid="button-save-report" disabled={saving || observations.some((item) => !item.trim())} onClick={() => onSave(observations.map((item) => item.trim()), transcript.trim() || null)} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving report…' : 'Save three observations'}</button>
+    </Modal>
+  );
+}
+
+function Modal({ title, eyebrow, onClose, children }: { title: string; eyebrow: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div data-testid="modal-overlay" className="fixed inset-0 z-40 flex items-end justify-center bg-primary/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-[26px] border border-card-border bg-card p-5 shadow-2xl sm:rounded-[26px] sm:p-7">
+        <div className="mb-6 flex items-start justify-between">
+          <div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">{eyebrow}</p><h2 className="mt-1 font-serif text-3xl font-bold tracking-tight">{title}</h2></div>
+          <button data-testid="button-close-modal" onClick={onClose} aria-label="Close dialog" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-primary"><X size={19} /></button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function TrackerPage() {
+  const queryClient = useQueryClient();
+  const tracker = useGetTracker({ query: { queryKey: getGetTrackerQueryKey(), staleTime: 30000 } });
+  const refresh = useRefreshTracker();
+  const updateMatch = useUpdateMatch();
+  const saveReport = useSaveCoachReport();
+  const [view, setView] = useState<ViewMode>('players');
+  const [editing, setEditing] = useState<Match | null>(null);
+  const [completing, setCompleting] = useState<Match | null>(null);
+  const [reporting, setReporting] = useState<Match | null>(null);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(''), 2800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const state = tracker.data;
+  const matches = useMemo(() => [...(state?.matches ?? [])].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)), [state?.matches]);
+  const patchMatch = (updated: Match) => queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (old) => old ? { ...old, matches: old.matches.map((match) => match.id === updated.id ? updated : match), lastUpdatedAt: new Date().toISOString() } : old);
+  const showSuccess = (message: string) => setToast(message);
+  const doRefresh = () => refresh.mutate(undefined, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Draw refreshed'); }, onError: () => showSuccess('Refresh failed — try again') });
+  const saveMatch = (match: Match, data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => {
+    updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
+  };
+  const completeMatch = (match: Match, result: string) => {
+    updateMatch.mutate({ matchId: match.id, data: { status: 'completed', result } }, { onSuccess: (updated) => { patchMatch(updated); setCompleting(null); showSuccess('Match closed out'); } });
+  };
+  const saveCoachReport = (match: Match, observations: string[], transcript: string | null) => {
+    saveReport.mutate({ matchId: match.id, data: { observations, transcript } }, { onSuccess: (report) => { patchMatch({ ...match, report }); setReporting(null); showSuccess('Coach report saved'); } });
+  };
+
+  if (tracker.isLoading) return <TrackerSkeleton />;
+  if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
+  if (!state || !state.matches.length) return <EmptyState onRefresh={doRefresh} />;
+
+  const filteredMatches = view === 'players' ? matches : matches.filter((match) => match.coachId);
+  return (
+    <div className="noise min-h-[100dvh] bg-background text-foreground">
+      <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} />
+      <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
+        <div className="rise-in flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">Saturday · match desk</p>
+            <h1 data-testid="heading-tracker" className="mt-2 font-serif text-4xl font-bold tracking-[-.04em] sm:text-5xl">Stay on court.</h1>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">The next match, without the rummage. Follow each player from warm-up to report.</p>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-card-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm">
+            <Clock3 size={15} className="text-accent" /> Live draw view
+          </div>
+        </div>
+        <div className="rise-in delay-1 mt-7"><SummaryStrip matches={matches} players={state.players} coaches={state.coaches} /></div>
+        <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
+        <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
+          <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
+            <button data-testid="tab-players" onClick={() => setView('players')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
+            <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
+          </div>
+          <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{filteredMatches.length} cards</span>
+        </div>
+        <div className="rise-in delay-3 mt-4 space-y-3">
+          {filteredMatches.map((match) => (
+            <MatchCard key={match.id} match={match} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
+          ))}
+        </div>
+        <footer className="mt-10 flex items-center justify-between border-t border-border pt-4 text-[10px] text-muted-foreground">
+          <span className="font-mono uppercase tracking-[.16em]">StaitSquash / keep moving</span>
+          <span>{matches.filter((match) => match.status === 'completed').length} completed</span>
+        </footer>
+      </main>
+      {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
+      {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
+      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript) => saveCoachReport(reporting, observations, transcript)} saving={saveReport.isPending} />}
+      {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
+    </div>
+  );
+}
+
+function Router() {
+  return (
+    <RoutedErrorBoundary>
+      <Switch>
+        <Route path="/" component={TrackerPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </RoutedErrorBoundary>
+  );
+}
+
+function RoutedErrorBoundary({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+          <Router />
+        </WouterRouter>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;
