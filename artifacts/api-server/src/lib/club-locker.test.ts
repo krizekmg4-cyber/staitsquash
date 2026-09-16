@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearRefreshFailures,
+  getRefreshRecovery,
   mergeClubLockerFeed,
   parseClubLockerFeed,
   recordRefreshFailure,
@@ -52,6 +53,7 @@ const stateWith = (...matches: TrackerState["matches"]): TrackerState => ({
   refreshHealth: {
     consecutiveFailures: 0,
     alertThreshold: 3,
+    firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
   },
@@ -298,6 +300,7 @@ test("counts consecutive refresh failures and preserves alert state", () => {
   assert.deepEqual(second.refreshHealth, {
     consecutiveFailures: 2,
     alertThreshold: 2,
+    firstFailureAt: "2026-09-16T12:00:00.000Z",
     lastFailureAt: "2026-09-16T12:05:00.000Z",
     alertSentAt: "2026-09-16T12:01:00.000Z",
   });
@@ -310,7 +313,38 @@ test("successful refresh clears the failure condition", () => {
   assert.deepEqual(healthy.refreshHealth, {
     consecutiveFailures: 0,
     alertThreshold: 4,
+    firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
   });
+});
+
+test("reports recovery details only after an alerted failure", () => {
+  const normalSuccess = getRefreshRecovery(
+    stateWith(),
+    "2026-09-16T12:10:00.000Z",
+  );
+  assert.equal(normalSuccess, null);
+
+  const failing = recordRefreshFailure(
+    stateWith(),
+    2,
+    "2026-09-16T12:00:00.000Z",
+  );
+  const alerted = recordRefreshFailure(
+    failing,
+    2,
+    "2026-09-16T12:05:00.000Z",
+  );
+  alerted.refreshHealth.alertSentAt = "2026-09-16T12:05:00.000Z";
+
+  assert.deepEqual(
+    getRefreshRecovery(alerted, "2026-09-16T12:20:00.000Z"),
+    {
+      failedAttempts: 2,
+      outageStartedAt: "2026-09-16T12:00:00.000Z",
+      recoveredAt: "2026-09-16T12:20:00.000Z",
+      outageDurationMs: 20 * 60_000,
+    },
+  );
 });

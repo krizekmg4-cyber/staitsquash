@@ -28,9 +28,42 @@ export type TrackerState = {
 export type RefreshHealth = {
   consecutiveFailures: number;
   alertThreshold: number;
+  firstFailureAt: string | null;
   lastFailureAt: string | null;
   alertSentAt: string | null;
 };
+
+export type RefreshRecovery = {
+  failedAttempts: number;
+  outageStartedAt: string;
+  recoveredAt: string;
+  outageDurationMs: number;
+};
+
+export function getRefreshRecovery(
+  state: TrackerState,
+  recoveredAt = new Date().toISOString(),
+): RefreshRecovery | null {
+  const { alertSentAt, consecutiveFailures, firstFailureAt } =
+    state.refreshHealth;
+  if (
+    alertSentAt === null ||
+    consecutiveFailures === 0 ||
+    firstFailureAt === null
+  ) {
+    return null;
+  }
+
+  return {
+    failedAttempts: consecutiveFailures,
+    outageStartedAt: firstFailureAt,
+    recoveredAt,
+    outageDurationMs: Math.max(
+      0,
+      Date.parse(recoveredAt) - Date.parse(firstFailureAt),
+    ),
+  };
+}
 
 export function clearRefreshFailures(
   state: TrackerState,
@@ -41,6 +74,7 @@ export function clearRefreshFailures(
     refreshHealth: {
       consecutiveFailures: 0,
       alertThreshold,
+      firstFailureAt: null,
       lastFailureAt: null,
       alertSentAt: null,
     },
@@ -57,6 +91,7 @@ export function recordRefreshFailure(
     refreshHealth: {
       consecutiveFailures: state.refreshHealth.consecutiveFailures + 1,
       alertThreshold,
+      firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
     },

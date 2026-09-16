@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import {
   parseClubLockerFeed,
+  getRefreshRecovery,
   recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
@@ -78,6 +79,7 @@ const INITIAL_STATE: TrackerState = {
   refreshHealth: {
     consecutiveFailures: 0,
     alertThreshold: 3,
+    firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
   },
@@ -95,12 +97,22 @@ function normalizeState(state: TrackerState): TrackerState {
   const alertThreshold = getAlertThreshold();
   return {
     ...state,
-    refreshHealth: state.refreshHealth ?? {
-      consecutiveFailures: 0,
-      alertThreshold,
-      lastFailureAt: null,
-      alertSentAt: null,
-    },
+    refreshHealth: state.refreshHealth
+      ? {
+          ...state.refreshHealth,
+          firstFailureAt:
+            state.refreshHealth.firstFailureAt ??
+            (state.refreshHealth.consecutiveFailures > 0
+              ? state.refreshHealth.lastFailureAt
+              : null),
+        }
+      : {
+          consecutiveFailures: 0,
+          alertThreshold,
+          firstFailureAt: null,
+          lastFailureAt: null,
+          alertSentAt: null,
+        },
   };
 }
 
@@ -168,6 +180,50 @@ async function alertStaff(state: TrackerState, error: unknown): Promise<void> {
         event: "club-locker-refresh-failing",
         consecutiveFailures: state.refreshHealth.consecutiveFailures,
         lastFailureAt: state.refreshHealth.lastFailureAt,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Staff alert webhook returned HTTP ${response.status}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function formatDuration(durationMs: number): string {
+  const totalMinutes = Math.max(1, Math.round(durationMs / 60_000));
+  if (totalMinutes < 60) {
+    return `${totalMinutes} minute${totalMinutes === 1 ? "" : "s"}`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hour${hours === 1 ? "" : "s"}${
+    minutes === 0 ? "" : ` ${minutes} minute${minutes === 1 ? "" : "s"}`
+  }`;
+}
+
+async function alertStaffOfRecovery(
+  recovery: NonNullable<ReturnType<typeof getRefreshRecovery>>,
+): Promise<void> {
+  const url = process.env["STAFF_ALERT_WEBHOOK_URL"];
+  if (!url) throw new Error("STAFF_ALERT_WEBHOOK_URL is not configured");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const outageDuration = formatDuration(recovery.outageDurationMs);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `StaitSquash recovery: Club Locker schedule refresh is working again after ${outageDuration} and ${recovery.failedAttempts} failed attempt${recovery.failedAttempts === 1 ? "" : "s"}. The schedule is current.`,
+        event: "club-locker-refresh-recovered",
+        failedAttempts: recovery.failedAttempts,
+        outageDurationMs: recovery.outageDurationMs,
+        outageStartedAt: recovery.outageStartedAt,
+        recoveredAt: recovery.recoveredAt,
       }),
       signal: controller.signal,
     });
@@ -247,12 +303,32 @@ router.put("/matches/:matchId/report", async (req, res): Promise<void> => {
 router.post("/tracker/refresh", async (req, res): Promise<void> => {
   const alertThreshold = getAlertThreshold();
   try {
+    const previousState = await getState();
+    const recoveredAt = new Date().toISOString();
+    const recovery = getRefreshRecovery(previousState, recoveredAt);
     const state = await refreshTrackerState(
-      getState,
+      async () => previousState,
       fetchClubLockerFeed,
       saveState,
       alertThreshold,
     );
+    if (recovery) {
+      try {
+        await alertStaffOfRecovery(recovery);
+        req.log.info(
+          {
+            failedAttempts: recovery.failedAttempts,
+            outageDurationMs: recovery.outageDurationMs,
+          },
+          "Staff alerted that Club Locker refresh recovered",
+        );
+      } catch (alertError) {
+        req.log.error(
+          { err: alertError },
+          "Could not alert staff about refresh recovery",
+        );
+      }
+    }
     res.json(RefreshTrackerResponse.parse(state));
   } catch (error) {
     const failedState = recordRefreshFailure(
