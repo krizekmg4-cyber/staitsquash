@@ -9,6 +9,7 @@ import {
   recordRefreshFailure,
   refreshTrackerState,
   type ClubLockerFeed,
+  type ReadonlyClubLockerFeed,
   type ReadonlyTrackerState,
   type TrackerState,
 } from "./club-locker.ts";
@@ -25,6 +26,19 @@ function loadedStateIsDeeplyReadonly(state: ReadonlyTrackerState): void {
 }
 
 void loadedStateIsDeeplyReadonly;
+
+function incomingFeedIsDeeplyReadonly(feed: ReadonlyClubLockerFeed): void {
+  // @ts-expect-error Incoming matches must be replaced instead of mutated.
+  feed.matches[0].opponent = "Changed";
+  // @ts-expect-error Incoming match collections must not be mutated.
+  feed.matches.push(incoming("new-match"));
+  if (feed.players) {
+    // @ts-expect-error Incoming players must be replaced instead of mutated.
+    feed.players[0].name = "Changed";
+  }
+}
+
+void incomingFeedIsDeeplyReadonly;
 
 const incoming = (
   externalId: string,
@@ -310,6 +324,22 @@ test("allows identical duplicate player records", () => {
   });
 
   assert.equal(feed.players?.length, 2);
+});
+
+test("mutable replacement players do not share validated feed records", () => {
+  const feed = parseClubLockerFeed({
+    matches: [],
+    players: [{ id: "player-2", name: "Player Two" }],
+  });
+
+  const result = mergeClubLockerFeed(stateWith(), feed);
+  const replacementPlayer = result.players.find(
+    (player) => player.id === "player-2",
+  );
+  assert.ok(replacementPlayer);
+
+  replacementPlayer.name = "Changed";
+  assert.equal(feed.players?.[0]?.name, "Player Two");
 });
 
 test("invalid feeds never persist a replacement state", async () => {

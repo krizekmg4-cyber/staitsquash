@@ -171,6 +171,8 @@ export type ClubLockerFeed = {
   players?: Array<{ id: string; name: string }>;
 };
 
+export type ReadonlyClubLockerFeed = DeepReadonly<ClubLockerFeed>;
+
 function cloneTrackerMatch(match: ReadonlyTrackerState["matches"][number]): TrackerMatch {
   return {
     ...match,
@@ -295,7 +297,7 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
 
 export function mergeClubLockerFeed(
   state: ReadonlyTrackerState,
-  feed: ClubLockerFeed,
+  feed: ReadonlyClubLockerFeed,
 ): TrackerState {
   const currentByExternalId = new Map(
     state.matches
@@ -379,7 +381,9 @@ export function mergeClubLockerFeed(
   const playersById = new Map(
     state.players.map((player) => [player.id, { ...player }]),
   );
-  for (const player of feed.players ?? []) playersById.set(player.id, player);
+  for (const player of feed.players ?? []) {
+    playersById.set(player.id, { ...player });
+  }
   for (const match of feed.matches) {
     if (!playersById.has(match.playerId)) {
       playersById.set(match.playerId, {
