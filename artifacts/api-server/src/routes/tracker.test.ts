@@ -1754,6 +1754,130 @@ test("coach report audio upload stores bytes and returns its object path", async
   }
 });
 
+test("audio upload removes only expired voice notes not referenced by current reports", async () => {
+  const referencedPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
+  const orphanedPath = "/objects/uploads/22222222-2222-4222-8222-222222222222";
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "completed-match",
+      observations: ["Stayed composed."],
+      transcript: null,
+      audioPath: referencedPath,
+      updatedAt: "2026-09-15T10:00:00.000Z",
+    },
+  }];
+  const deleted: string[] = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = { error: () => undefined } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => undefined,
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      listVoiceNotesOlderThan: async () => [referencedPath, orphanedPath],
+      deleteObject: async (path) => {
+        deleted.push(path);
+      },
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/matches/completed-match/report/audio`,
+      { method: "POST", headers: { "Content-Type": "audio/webm" }, body: "new note" },
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(deleted, [orphanedPath]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
+test("unfinished voice note cleanup failures are logged without failing upload", async () => {
+  const state = healthyState();
+  state.matches = [{
+    id: "completed-match",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: null,
+  }];
+  const logged: Array<[unknown, string]> = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = {
+      error: (details: unknown, message: string) => logged.push([details, message]),
+    } as unknown as typeof req.log;
+    next();
+  });
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async () => undefined,
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      listVoiceNotesOlderThan: async () => {
+        throw new Error("storage unavailable");
+      },
+      deleteObject: async () => undefined,
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/matches/completed-match/report/audio`,
+      { method: "POST", headers: { "Content-Type": "audio/webm" }, body: "new note" },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(logged[0]?.[1], "Could not find unfinished coach voice notes");
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
+
 test("replacing report audio deletes the previous object after persistence", async () => {
   const previousAudioPath = "/objects/uploads/11111111-1111-4111-8111-111111111111";
   const replacementAudioPath = "/objects/uploads/22222222-2222-4222-8222-222222222222";

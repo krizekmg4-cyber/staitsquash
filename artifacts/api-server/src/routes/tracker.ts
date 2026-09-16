@@ -390,7 +390,8 @@ type TrackerRouterDependencies = {
   getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
   mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
-  objectStorage?: Pick<ObjectStorageService, "saveObject" | "getObject" | "deleteObject">;
+  objectStorage?: Pick<ObjectStorageService, "saveObject" | "getObject" | "deleteObject"> &
+    Partial<Pick<ObjectStorageService, "listVoiceNotesOlderThan">>;
   authorizeStaff?: RequestHandler;
   recoverInvalidState?: (request: {
     actorId: string;
@@ -574,6 +575,7 @@ export function createTrackerRouter(
   const recoverRejectedState =
     dependencies.recoverInvalidState ?? recoverInvalidTrackerState;
   let mutationQueue: Promise<void> = Promise.resolve();
+  const VOICE_NOTE_CLEANUP_GRACE_MS = 24 * 60 * 60 * 1_000;
 
   function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
     const result = mutationQueue.then(operation, operation);
@@ -589,6 +591,33 @@ export function createTrackerRouter(
   ): Promise<T> {
     if (dependencies.mutateState) return dependencies.mutateState(operation);
     return serializeMutation(() => operation(loadState, persistState));
+  }
+
+  async function cleanupUnattachedVoiceNotes(req: express.Request): Promise<void> {
+    if (!objectStorage.listVoiceNotesOlderThan) return;
+    let candidates: string[];
+    try {
+      candidates = await objectStorage.listVoiceNotesOlderThan(
+        new Date(Date.now() - VOICE_NOTE_CLEANUP_GRACE_MS),
+      );
+    } catch (error) {
+      req.log?.error({ err: error }, "Could not find unfinished coach voice notes");
+      return;
+    }
+
+    for (const objectPath of candidates) {
+      try {
+        await coordinateMutation(async (loadLockedState) => {
+          if (isObjectPathReferenced(await loadLockedState(), objectPath)) return;
+          await objectStorage.deleteObject(objectPath);
+        });
+      } catch (error) {
+        req.log?.error(
+          { err: error, objectPath },
+          "Could not remove unfinished coach voice note",
+        );
+      }
+    }
   }
 
   router.get("/tracker", authorizeStaff, async (_req, res): Promise<void> => {
@@ -897,7 +926,9 @@ export function createTrackerRouter(
         const objectPath = `/objects/uploads/${randomUUID()}`;
         await objectStorage.saveObject(objectPath, req.body, req.get("content-type")!);
         res.json(UploadCoachReportAudioResponse.parse({ objectPath }));
+        await cleanupUnattachedVoiceNotes(req);
       } catch (error) {
+        if (res.headersSent) return;
         req.log.error({ err: error }, "Could not store coach voice note");
         res.status(500).json({ error: "Could not store coach voice note" });
       }

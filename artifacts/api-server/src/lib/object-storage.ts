@@ -56,6 +56,19 @@ export class ObjectStorageService {
     await file.delete({ ignoreNotFound: true });
   }
 
+  async listVoiceNotesOlderThan(cutoff: Date): Promise<string[]> {
+    const { bucket, object: privateObject } = parseStoragePath(this.getPrivateDir());
+    const uploadPrefix = `${privateObject}/uploads/`;
+    const [files] = await client.bucket(bucket).getFiles({ prefix: uploadPrefix });
+    return files.flatMap((file) => {
+      const relativeName = file.name.slice(uploadPrefix.length);
+      if (!/^[0-9a-f-]+$/.test(relativeName)) return [];
+      const createdAt = Date.parse(file.metadata.timeCreated ?? "");
+      if (!Number.isFinite(createdAt) || createdAt >= cutoff.getTime()) return [];
+      return [`/objects/uploads/${relativeName}`];
+    });
+  }
+
   async stream(file: File, res: import("express").Response): Promise<void> {
     const [metadata] = await file.getMetadata();
     res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
