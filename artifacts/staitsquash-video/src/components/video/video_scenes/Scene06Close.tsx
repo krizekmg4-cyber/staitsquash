@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import { CourtIllustration, ease, SceneFrame, TinyRule } from './shared';
-import { CourtIllustration, SceneFrame, TinyRule } from './shared';
 
 export function Scene06Close() {
   return (
