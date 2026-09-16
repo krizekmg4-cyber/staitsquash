@@ -1,4 +1,4 @@
-type TrackerPerson = { id: string; name: string };
+type TrackerPerson = { id: string; name: string; shareToken?: string };
 
 type TrackerMatch = {
     id: string;
@@ -428,7 +428,10 @@ export function mergeClubLockerFeed(
     state.players.map((player) => [player.id, { ...player }]),
   );
   for (const player of feed.players ?? []) {
-    playersById.set(player.id, { ...player });
+    playersById.set(player.id, {
+      ...player,
+      shareToken: playersById.get(player.id)?.shareToken,
+    });
   }
   for (const match of feed.matches) {
     if (!playersById.has(match.playerId)) {

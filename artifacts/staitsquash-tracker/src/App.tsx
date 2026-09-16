@@ -13,6 +13,8 @@ import {
   MicOff,
   Play,
   RefreshCw,
+  Copy,
+  Link,
   Save,
   Settings,
   Trophy,
@@ -27,6 +29,7 @@ import {
   useGetTrackerHealth,
   useGetPlayerTracker,
   useRefreshTracker,
+  useRotatePlayerShareToken,
   useSaveCoachReport,
   useSaveTrackerSettings,
   useUpdateMatch,
@@ -415,7 +418,7 @@ function Modal({ title, eyebrow, onClose, children }: { title: string; eyebrow: 
   );
 }
 
-function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => void; saving: boolean }) {
+function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPlayerId, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => void; onRotateShareLink: (player: Player) => void; rotatingPlayerId: string | null; saving: boolean }) {
   const [coaches, setCoaches] = useState(state.coaches.filter((coach) => coach.id !== 'unassigned'));
   const [brandName, setBrandName] = useState(state.branding.name);
   const [logoPath, setLogoPath] = useState(state.branding.logoPath);
@@ -445,6 +448,16 @@ function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerStat
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
         <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button data-testid="button-remove-logo" type="button" onClick={() => setLogoPath(null)} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
         <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <input className="field" key={`${person.id}-${index}`} value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" />)}</div><p className="mt-2 text-[11px] text-muted-foreground">These five names appear when assigning a coach to a match.</p></section>
+        <section>
+          <p className="field-label mb-2">Private player links</p>
+          <div className="space-y-2">
+            {state.players.map((player) => {
+              const shareUrl = `${window.location.origin}${basePath}/players/${player.shareToken}`;
+              return <div key={player.id} className="rounded-xl border border-border p-3"><p className="text-sm font-bold">{player.name}</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void navigator.clipboard.writeText(shareUrl)} className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-xs font-bold"><Copy size={13} /> Copy link</button><button type="button" disabled={rotatingPlayerId === player.id} onClick={() => onRotateShareLink(player)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10 disabled:opacity-50"><Link size={13} /> {rotatingPlayerId === player.id ? 'Resetting…' : 'Reset link'}</button></div></div>;
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">Resetting a link immediately disables the old one.</p>
+        </section>
       </div>
       <button data-testid="button-save-settings" disabled={saving || uploading || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoPath } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
     </Modal>
@@ -465,6 +478,8 @@ function TrackerPage() {
   const updateMatch = useUpdateMatch();
   const saveReport = useSaveCoachReport();
   const saveSettings = useSaveTrackerSettings();
+  const rotateShareToken = useRotatePlayerShareToken();
+  const [rotatingPlayerId, setRotatingPlayerId] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>('players');
   const [editing, setEditing] = useState<Match | null>(null);
   const [completing, setCompleting] = useState<Match | null>(null);
@@ -598,7 +613,7 @@ function TrackerPage() {
       {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
       {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
-      {settingsOpen && <SettingsEditor state={state} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} onSave={(data) => saveSettings.mutate({ data }, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); setSettingsOpen(false); showSuccess('Settings saved'); }, onError: () => setToast('Settings could not be saved') })} />}
+      {settingsOpen && <SettingsEditor state={state} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={(data) => saveSettings.mutate({ data }, { onSuccess: (next) => { queryClient.setQueryData(getGetTrackerQueryKey(), next); setSettingsOpen(false); showSuccess('Settings saved'); }, onError: () => setToast('Settings could not be saved') })} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>
   );
@@ -617,10 +632,10 @@ function PlayerNotFoundState() {
 }
 
 function PlayerView() {
-  const { playerId } = useParams<{ playerId: string }>();
-  const tracker = useGetPlayerTracker(playerId, {
+  const { shareToken } = useParams<{ shareToken: string }>();
+  const tracker = useGetPlayerTracker(shareToken, {
     query: {
-      queryKey: getGetPlayerTrackerQueryKey(playerId),
+      queryKey: getGetPlayerTrackerQueryKey(shareToken),
       staleTime: 30_000,
       retry: (failureCount, error) => error.status !== 404 && failureCount < 3,
     },
@@ -784,7 +799,7 @@ function Router() {
   return (
     <RoutedErrorBoundary>
       <Switch>
-        <Route path="/players/:playerId" component={PlayerView} />
+        <Route path="/players/:shareToken" component={PlayerView} />
         <Route path="/sign-in/*?" component={SignInPage} />
         <Route path="/" component={StaffHome} />
         <Route component={NotFound} />

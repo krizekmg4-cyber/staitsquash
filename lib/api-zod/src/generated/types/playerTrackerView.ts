@@ -7,11 +7,11 @@
  */
 import type { Coach } from './coach';
 import type { Match } from './match';
-import type { Player } from './player';
+import type { PublicPlayer } from './publicPlayer';
 import type { TrackerBranding } from './trackerBranding';
 
 export interface PlayerTrackerView {
-  player: Player;
+  player: PublicPlayer;
   coaches: Coach[];
   matches: Match[];
   branding: TrackerBranding;

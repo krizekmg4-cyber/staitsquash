@@ -6,6 +6,7 @@ const ObjectPath = z.string().regex(/^\/objects\/uploads\/[0-9a-f-]+$/);
 const TrackerPerson = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
+  shareToken: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
 });
 
 const RefreshRecovery = z.object({

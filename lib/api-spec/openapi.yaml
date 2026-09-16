@@ -52,17 +52,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RefreshHealth"
-  /players/{playerId}/tracker:
+  /players/{shareToken}/tracker:
     get:
       operationId: getPlayerTracker
       tags: [tracker]
       summary: Get a read-only tracker view for one player
       parameters:
-        - name: playerId
+        - name: shareToken
           in: path
           required: true
           schema:
             type: string
+            minLength: 32
+            maxLength: 128
       responses:
         "200":
           description: Player schedule, history, coaches, and branding
@@ -71,7 +73,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlayerTrackerView"
         "404":
-          description: Player not found
+          description: Player link not found
           content:
             application/json:
               schema:
@@ -94,6 +96,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TrackerState"
+  /tracker/players/{playerId}/share-token:
+    post:
+      operationId: rotatePlayerShareToken
+      tags: [tracker]
+      summary: Revoke a player's current share link and create a new one
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Player with a new share token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "404":
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /tracker/logo:
     post:
       operationId: uploadTrackerLogo
@@ -289,6 +315,17 @@ components:
         name: { type: string }
     Player:
       type: object
+      required: [id, name, shareToken]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        shareToken:
+          type: string
+          minLength: 32
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_-]+$"
+    PublicPlayer:
+      type: object
       required: [id, name]
       properties:
         id: { type: string }
@@ -420,7 +457,7 @@ components:
       required: [player, coaches, matches, branding, lastUpdatedAt]
       properties:
         player:
-          $ref: "#/components/schemas/Player"
+          $ref: "#/components/schemas/PublicPlayer"
         coaches:
           type: array
           items:

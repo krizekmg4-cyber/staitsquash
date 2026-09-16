@@ -22,7 +22,7 @@ const initialHealth = {
 };
 
 const tracker = {
-  players: [{ id: 'player-1', name: 'Alex Morgan' }],
+  players: [{ id: 'player-1', name: 'Alex Morgan', shareToken: 'a'.repeat(43) }],
   coaches: [
     { id: 'coach-1', name: 'Coach One' },
     { id: 'coach-2', name: 'Coach Two' },
@@ -244,7 +244,7 @@ describe('tracker logo settings', () => {
 
 describe('read-only player links', () => {
   beforeEach(() => {
-    window.history.pushState({}, '', '/players/player-1');
+    window.history.pushState({}, '', `/players/${'a'.repeat(43)}`);
   });
 
   afterEach(() => {
@@ -255,7 +255,7 @@ describe('read-only player links', () => {
   it('renders only the requested player, their matches, and assigned coaches', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.endsWith('/api/players/player-1/tracker')) {
+      if (url.endsWith(`/api/players/${'a'.repeat(43)}/tracker`)) {
         return Response.json({
           player: { id: 'player-1', name: 'Visible Player' },
           matches: [
@@ -299,11 +299,11 @@ describe('read-only player links', () => {
   });
 
   it('shows a safe not-found state for an unknown player link', async () => {
-    window.history.replaceState({}, '', '/players/unknown-player');
+    window.history.replaceState({}, '', `/players/${'z'.repeat(43)}`);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
-      if (url.endsWith('/api/players/unknown-player/tracker')) {
-        return Response.json({ error: 'Player not found' }, { status: 404 });
+      if (url.endsWith(`/api/players/${'z'.repeat(43)}/tracker`)) {
+        return Response.json({ error: 'Player link not found' }, { status: 404 });
       }
       throw new Error(`Unexpected request: ${url}`);
     }));

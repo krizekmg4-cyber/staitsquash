@@ -26,6 +26,7 @@ import type {
   HealthStatus,
   Match,
   MatchUpdate,
+  Player,
   PlayerTrackerView,
   RefreshHealth,
   StoredObject,
@@ -293,20 +294,20 @@ export function useGetTrackerHealth<TData = Awaited<ReturnType<typeof getTracker
 
 
 
-export const getGetPlayerTrackerUrl = (playerId: string,) => {
+export const getGetPlayerTrackerUrl = (shareToken: string,) => {
 
 
 
 
-  return `/api/players/${playerId}/tracker`
+  return `/api/players/${shareToken}/tracker`
 }
 
 /**
  * @summary Get a read-only tracker view for one player
  */
-export const getPlayerTracker = async (playerId: string, options?: Parameters<typeof customFetch>[1]): Promise<PlayerTrackerView> => {
+export const getPlayerTracker = async (shareToken: string, options?: Parameters<typeof customFetch>[1]): Promise<PlayerTrackerView> => {
 
-  return customFetch<PlayerTrackerView>(getGetPlayerTrackerUrl(playerId),
+  return customFetch<PlayerTrackerView>(getGetPlayerTrackerUrl(shareToken),
   {
     ...options,
     method: 'GET'
@@ -319,29 +320,29 @@ export const getPlayerTracker = async (playerId: string, options?: Parameters<ty
 
 
 
-export const getGetPlayerTrackerQueryKey = (playerId: string,) => {
+export const getGetPlayerTrackerQueryKey = (shareToken: string,) => {
     return [
-    `/api/players/${playerId}/tracker`
+    `/api/players/${shareToken}/tracker`
     ] as const;
     }
 
 
-export const getGetPlayerTrackerQueryOptions = <TData = Awaited<ReturnType<typeof getPlayerTracker>>, TError = ErrorType<ApiError>>(playerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetPlayerTrackerQueryOptions = <TData = Awaited<ReturnType<typeof getPlayerTracker>>, TError = ErrorType<ApiError>>(shareToken: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetPlayerTrackerQueryKey(playerId);
+  const queryKey =  queryOptions?.queryKey ?? getGetPlayerTrackerQueryKey(shareToken);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlayerTracker>>> = ({ signal }) => getPlayerTracker(playerId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlayerTracker>>> = ({ signal }) => getPlayerTracker(shareToken, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: playerId !== null && playerId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, enabled: shareToken !== null && shareToken !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData> & { queryKey: QueryKey }
 }
 
 export type GetPlayerTrackerQueryResult = NonNullable<Awaited<ReturnType<typeof getPlayerTracker>>>
@@ -353,11 +354,11 @@ export type GetPlayerTrackerQueryError = ErrorType<ApiError>
  */
 
 export function useGetPlayerTracker<TData = Awaited<ReturnType<typeof getPlayerTracker>>, TError = ErrorType<ApiError>>(
- playerId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ shareToken: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPlayerTracker>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetPlayerTrackerQueryOptions(playerId,options)
+  const queryOptions = getGetPlayerTrackerQueryOptions(shareToken,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -456,6 +457,80 @@ export const useSaveTrackerSettings = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSaveTrackerSettingsMutationOptions(options));
+    }
+
+export const getRotatePlayerShareTokenUrl = (playerId: string,) => {
+
+
+
+
+  return `/api/tracker/players/${playerId}/share-token`
+}
+
+/**
+ * @summary Revoke a player's current share link and create a new one
+ */
+export const rotatePlayerShareToken = async (playerId: string, options?: Parameters<typeof customFetch>[1]): Promise<Player> => {
+
+  return customFetch<Player>(getRotatePlayerShareTokenUrl(playerId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRotatePlayerShareTokenMutationKey = () => ['rotatePlayerShareToken'] as const;
+
+export const getRotatePlayerShareTokenMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotatePlayerShareToken>>, TError,RotatePlayerShareTokenMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rotatePlayerShareToken>>, TError,RotatePlayerShareTokenMutationVariables, TContext> => {
+
+const mutationKey = getRotatePlayerShareTokenMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rotatePlayerShareToken>>, RotatePlayerShareTokenMutationVariables> = (props) => {
+          const {playerId} = props ?? {};
+
+          return  rotatePlayerShareToken(playerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RotatePlayerShareTokenMutationResult = NonNullable<Awaited<ReturnType<typeof rotatePlayerShareToken>>>
+
+    export type RotatePlayerShareTokenMutationError = ErrorType<ApiError>
+    export type RotatePlayerShareTokenMutationVariables = {playerId: string}
+
+    /**
+ * @summary Revoke a player's current share link and create a new one
+ */
+export const useRotatePlayerShareToken = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rotatePlayerShareToken>>, TError,RotatePlayerShareTokenMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rotatePlayerShareToken>>,
+        TError,
+        RotatePlayerShareTokenMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRotatePlayerShareTokenMutationOptions(options));
     }
 
 export const getUploadTrackerLogoUrl = () => {

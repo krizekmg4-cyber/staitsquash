@@ -1,5 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   GetTrackerResponse,
@@ -7,6 +7,8 @@ import {
   GetTrackerHealthResponse,
   GetPlayerTrackerParams,
   GetPlayerTrackerResponse,
+  RotatePlayerShareTokenParams,
+  RotatePlayerShareTokenResponse,
   RefreshTrackerResponse,
   UploadTrackerLogoResponse,
   UploadCoachReportAudioParams,
@@ -37,7 +39,7 @@ import { ObjectStorageService } from "../lib/object-storage.js";
 import { requireStaff } from "../middlewares/requireStaff.js";
 
 const INITIAL_STATE: TrackerState = {
-  players: [{ id: "cameron-stait", name: "Cameron Stait" }],
+  players: [{ id: "cameron-stait", name: "Cameron Stait", shareToken: randomBytes(32).toString("base64url") }],
   coaches: [
     { id: "alex", name: "Alex" },
     { id: "narelle", name: "Narelle" },
@@ -141,7 +143,10 @@ function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
       })
     | undefined;
   return freezeTrackerState({
-    players: state.players.map((player) => ({ ...player })),
+    players: state.players.map((player) => ({
+      ...player,
+      shareToken: player.shareToken ?? randomBytes(32).toString("base64url"),
+    })),
     coaches: state.coaches.map((coach) => ({ ...coach })),
     branding: storedBranding
       ? {
@@ -202,7 +207,14 @@ async function getState(): Promise<ReadonlyTrackerState> {
     .from(trackerStateTable)
     .where(eq(trackerStateTable.id, "main"));
 
-  if (row) return normalizeState(parsePersistedTrackerState(row.data));
+  if (row) {
+    const parsed = parsePersistedTrackerState(row.data);
+    const normalized = normalizeState(parsed);
+    if (parsed.players.some((player) => !player.shareToken)) {
+      await saveState(cloneTrackerState(normalized));
+    }
+    return normalized;
+  }
 
   const [created] = await db
     .insert(trackerStateTable)
@@ -446,27 +458,46 @@ export function createTrackerRouter(
     res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
   });
 
-  router.get("/players/:playerId/tracker", async (req, res): Promise<void> => {
+  router.get("/players/:shareToken/tracker", async (req, res): Promise<void> => {
     const params = GetPlayerTrackerParams.safeParse(req.params);
     if (!params.success) {
       res.status(400).json({ error: params.error.message });
       return;
     }
     const state = await loadState();
-    const player = state.players.find((item) => item.id === params.data.playerId);
+    const player = state.players.find((item) => item.shareToken === params.data.shareToken);
     if (!player) {
-      res.status(404).json({ error: "Player not found" });
+      res.status(404).json({ error: "Player link not found" });
       return;
     }
     const matches = state.matches.filter((match) => match.playerId === player.id);
     const coachIds = new Set(matches.map((match) => match.coachId));
     res.json(GetPlayerTrackerResponse.parse({
-      player,
+      player: { id: player.id, name: player.name },
       matches,
       coaches: state.coaches.filter((coach) => coachIds.has(coach.id)),
       branding: state.branding,
       lastUpdatedAt: state.lastUpdatedAt,
     }));
+  });
+
+  router.post("/tracker/players/:playerId/share-token", authorizeStaff, async (req, res): Promise<void> => {
+    const params = RotatePlayerShareTokenParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    await coordinateMutation(async (loadLockedState, saveLockedState) => {
+      const state = cloneTrackerState(await loadLockedState());
+      const player = state.players.find((item) => item.id === params.data.playerId);
+      if (!player) {
+        res.status(404).json({ error: "Player not found" });
+        return;
+      }
+      player.shareToken = randomBytes(32).toString("base64url");
+      await saveLockedState(state);
+      res.json(RotatePlayerShareTokenResponse.parse(player));
+    });
   });
 
   router.put("/tracker/settings", authorizeStaff, async (req, res): Promise<void> => {

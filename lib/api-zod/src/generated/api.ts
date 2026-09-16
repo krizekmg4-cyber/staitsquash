@@ -20,6 +20,11 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary Get the complete tournament tracker
  */
+export const getTrackerResponsePlayersItemShareTokenMin = 32;
+export const getTrackerResponsePlayersItemShareTokenMax = 128;
+
+
+export const getTrackerResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const getTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const getTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
@@ -40,7 +45,8 @@ export const getTrackerResponseBrandingLogoPathRegExp = new RegExp('^/objects/up
 export const GetTrackerResponse = zod.object({
   "players": zod.array(zod.object({
   "id": zod.string(),
-  "name": zod.string()
+  "name": zod.string(),
+  "shareToken": zod.string().min(getTrackerResponsePlayersItemShareTokenMin).max(getTrackerResponsePlayersItemShareTokenMax).regex(getTrackerResponsePlayersItemShareTokenRegExp)
 })),
   "coaches": zod.array(zod.object({
   "id": zod.string(),
@@ -104,8 +110,13 @@ export const GetTrackerHealthResponse = zod.object({
 /**
  * @summary Get a read-only tracker view for one player
  */
+export const getPlayerTrackerPathShareTokenMin = 32;
+export const getPlayerTrackerPathShareTokenMax = 128;
+
+
+
 export const GetPlayerTrackerParams = zod.object({
-  "playerId": zod.coerce.string()
+  "shareToken": zod.coerce.string().min(getPlayerTrackerPathShareTokenMin).max(getPlayerTrackerPathShareTokenMax)
 })
 
 export const getPlayerTrackerResponseMatchesItemReportOneObservationsMin = 3;
@@ -180,6 +191,11 @@ export const SaveTrackerSettingsBody = zod.object({
 })
 })
 
+export const saveTrackerSettingsResponsePlayersItemShareTokenMin = 32;
+export const saveTrackerSettingsResponsePlayersItemShareTokenMax = 128;
+
+
+export const saveTrackerSettingsResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMin = 3;
 export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMax = 3;
 
@@ -200,7 +216,8 @@ export const saveTrackerSettingsResponseBrandingLogoPathRegExp = new RegExp('^/o
 export const SaveTrackerSettingsResponse = zod.object({
   "players": zod.array(zod.object({
   "id": zod.string(),
-  "name": zod.string()
+  "name": zod.string(),
+  "shareToken": zod.string().min(saveTrackerSettingsResponsePlayersItemShareTokenMin).max(saveTrackerSettingsResponsePlayersItemShareTokenMax).regex(saveTrackerSettingsResponsePlayersItemShareTokenRegExp)
 })),
   "coaches": zod.array(zod.object({
   "id": zod.string(),
@@ -239,6 +256,27 @@ export const SaveTrackerSettingsResponse = zod.object({
   "name": zod.string().min(1).max(saveTrackerSettingsResponseBrandingNameMax),
   "logoPath": zod.string().max(saveTrackerSettingsResponseBrandingLogoPathMax).regex(saveTrackerSettingsResponseBrandingLogoPathRegExp).nullable()
 })
+})
+
+
+/**
+ * @summary Revoke a player's current share link and create a new one
+ */
+export const RotatePlayerShareTokenParams = zod.object({
+  "playerId": zod.coerce.string()
+})
+
+export const rotatePlayerShareTokenResponseShareTokenMin = 32;
+export const rotatePlayerShareTokenResponseShareTokenMax = 128;
+
+
+export const rotatePlayerShareTokenResponseShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
+
+
+export const RotatePlayerShareTokenResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "shareToken": zod.string().min(rotatePlayerShareTokenResponseShareTokenMin).max(rotatePlayerShareTokenResponseShareTokenMax).regex(rotatePlayerShareTokenResponseShareTokenRegExp)
 })
 
 
@@ -363,6 +401,11 @@ export const UploadCoachReportAudioResponse = zod.object({
 /**
  * @summary Import the latest schedule from the configured Club Locker feed
  */
+export const refreshTrackerResponsePlayersItemShareTokenMin = 32;
+export const refreshTrackerResponsePlayersItemShareTokenMax = 128;
+
+
+export const refreshTrackerResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 3;
 export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
@@ -383,7 +426,8 @@ export const refreshTrackerResponseBrandingLogoPathRegExp = new RegExp('^/object
 export const RefreshTrackerResponse = zod.object({
   "players": zod.array(zod.object({
   "id": zod.string(),
-  "name": zod.string()
+  "name": zod.string(),
+  "shareToken": zod.string().min(refreshTrackerResponsePlayersItemShareTokenMin).max(refreshTrackerResponsePlayersItemShareTokenMax).regex(refreshTrackerResponsePlayersItemShareTokenRegExp)
 })),
   "coaches": zod.array(zod.object({
   "id": zod.string(),

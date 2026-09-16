@@ -9,4 +9,10 @@
 export interface Player {
   id: string;
   name: string;
+  /**
+     * @minLength 32
+     * @maxLength 128
+     * @pattern ^[A-Za-z0-9_-]+$
+     */
+  shareToken: string;
 }

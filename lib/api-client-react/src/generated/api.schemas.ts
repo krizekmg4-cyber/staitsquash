@@ -21,6 +21,17 @@ export interface Coach {
 export interface Player {
   id: string;
   name: string;
+  /**
+     * @minLength 32
+     * @maxLength 128
+     * @pattern ^[A-Za-z0-9_-]+$
+     */
+  shareToken: string;
+}
+
+export interface PublicPlayer {
+  id: string;
+  name: string;
 }
 
 export interface TrackerBranding {
@@ -167,7 +178,7 @@ export interface TrackerState {
 }
 
 export interface PlayerTrackerView {
-  player: Player;
+  player: PublicPlayer;
   coaches: Coach[];
   matches: Match[];
   branding: TrackerBranding;

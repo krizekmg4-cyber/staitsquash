@@ -11,8 +11,9 @@ import { createRequireStaff } from "../middlewares/requireStaff.ts";
 import { getClerkProxyHost } from "../middlewares/clerkProxyMiddleware.ts";
 
 const healthyState = (): TrackerState => ({
-  players: [{ id: "player-1", name: "Player One" }],
+  players: [{ id: "player-1", name: "Player One", shareToken: "a".repeat(43) }],
   coaches: [{ id: "coach-1", name: "Coach One" }],
+  branding: { name: "StaitSquash", logoPath: null },
   matches: [],
   lastUpdatedAt: "2026-09-16T12:00:00.000Z",
   source: "club-locker",
@@ -216,8 +217,8 @@ async function withTrackerServer(
 test("player tracker returns only the requested player's matches and assigned coaches", async () => {
   const state = healthyState();
   state.players = [
-    { id: "player-1", name: "Player One" },
-    { id: "player-2", name: "Player Two" },
+    { id: "player-1", name: "Player One", shareToken: "a".repeat(43) },
+    { id: "player-2", name: "Player Two", shareToken: "b".repeat(43) },
   ];
   state.coaches = [
     { id: "coach-1", name: "Coach One" },
@@ -271,7 +272,7 @@ test("player tracker returns only the requested player's matches and assigned co
   ];
 
   await withTrackerServer(state, async (url) => {
-    const response = await fetch(`${url}/players/player-1/tracker`);
+    const response = await fetch(`${url}/players/${"a".repeat(43)}/tracker`);
     assert.equal(response.status, 200);
     const body = await response.json() as {
       player: { id: string };
@@ -288,15 +289,44 @@ test("player tracker returns only the requested player's matches and assigned co
     assert.ok(body.matches.every((match) => match.playerId === "player-1"));
     assert.deepEqual(body.coaches.map((coach) => coach.id), ["coach-1", "coach-2"]);
     assert.equal(body.players, undefined);
+    assert.doesNotMatch(JSON.stringify(body), /shareToken/);
     assert.doesNotMatch(JSON.stringify(body), /Player Two|Private Opponent|Private Coach|Private Venue/);
   });
 });
 
 test("unknown player tracker links return a safe not-found response", async () => {
   await withTrackerServer(healthyState(), async (url) => {
-    const response = await fetch(`${url}/players/unknown-player/tracker`);
+    const response = await fetch(`${url}/players/${"z".repeat(43)}/tracker`);
     assert.equal(response.status, 404);
-    assert.deepEqual(await response.json(), { error: "Player not found" });
+    assert.deepEqual(await response.json(), { error: "Player link not found" });
+  });
+});
+
+test("rotating a player share token immediately revokes the old link", async () => {
+  const state = healthyState();
+  const oldToken = state.players[0]!.shareToken!;
+
+  await withTrackerServer(state, async (url) => {
+    const rotatedResponse = await fetch(
+      `${url}/tracker/players/player-1/share-token`,
+      { method: "POST" },
+    );
+    assert.equal(rotatedResponse.status, 200);
+    const rotatedPlayer = await rotatedResponse.json() as {
+      id: string;
+      shareToken: string;
+    };
+    assert.equal(rotatedPlayer.id, "player-1");
+    assert.notEqual(rotatedPlayer.shareToken, oldToken);
+    assert.ok(rotatedPlayer.shareToken.length >= 32);
+
+    const oldLinkResponse = await fetch(`${url}/players/${oldToken}/tracker`);
+    assert.equal(oldLinkResponse.status, 404);
+
+    const newLinkResponse = await fetch(
+      `${url}/players/${rotatedPlayer.shareToken}/tracker`,
+    );
+    assert.equal(newLinkResponse.status, 200);
   });
 });
 
