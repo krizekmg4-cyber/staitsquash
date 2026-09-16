@@ -237,26 +237,39 @@ export function mergeClubLockerFeed(
       )
       .map((match) => [match.externalId, match]),
   );
-  const importedIds = new Set(feed.matches.map((match) => match.externalId));
-  const retained = state.matches.filter(
-    (match) =>
-      match.externalId === null ||
-      importedIds.has(match.externalId) ||
-      match.status === "completed" ||
-      match.report !== null,
+  const incomingByExternalId = new Map(
+    feed.matches.map((match) => [match.externalId, match]),
   );
+  const importedIds = new Set(feed.matches.map((match) => match.externalId));
+  const retained = state.matches
+    .filter(
+      (match) =>
+        match.externalId === null ||
+        importedIds.has(match.externalId) ||
+        match.status === "completed" ||
+        match.report !== null,
+    )
+    .map((match) => {
+      const incoming =
+        match.externalId === null
+          ? undefined
+          : incomingByExternalId.get(match.externalId);
+      return incoming
+        ? {
+            ...match,
+            playerId: incoming.playerId,
+            opponent: incoming.opponent,
+            startsAt: incoming.startsAt,
+            endsAt: incoming.endsAt,
+            venue: incoming.venue,
+            court: incoming.court,
+          }
+        : match;
+    });
 
   for (const incoming of feed.matches) {
     const existing = currentByExternalId.get(incoming.externalId);
-    if (existing) {
-      existing.playerId = incoming.playerId;
-      existing.opponent = incoming.opponent;
-      existing.startsAt = incoming.startsAt;
-      existing.endsAt = incoming.endsAt;
-      existing.venue = incoming.venue;
-      existing.court = incoming.court;
-      continue;
-    }
+    if (existing) continue;
 
     retained.push({
       id: `club-locker:${Buffer.from(incoming.externalId).toString("base64url")}`,

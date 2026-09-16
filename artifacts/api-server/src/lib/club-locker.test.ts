@@ -95,6 +95,7 @@ test("updates schedule fields while preserving coach work and match history", ()
     result: "Won 3-1",
     report,
   });
+  const originalSnapshot = structuredClone(original);
 
   const result = mergeClubLockerFeed(stateWith(original), {
     matches: [
@@ -122,6 +123,8 @@ test("updates schedule fields while preserving coach work and match history", ()
   assert.equal(result.matches[0]?.status, "completed");
   assert.equal(result.matches[0]?.result, "Won 3-1");
   assert.equal(result.matches[0]?.report, report);
+  assert.deepEqual(original, originalSnapshot);
+  assert.notEqual(result.matches[0], original);
 });
 
 test("removes missing upcoming matches but retains completed and reported matches", () => {
@@ -331,6 +334,45 @@ test("unavailable feeds leave stored tracker state unchanged", async () => {
 
   assert.equal(persisted, false);
   assert.equal(original.matches[0]?.opponent, "Original opponent");
+});
+
+test("failed persistence leaves the loaded tracker state unchanged", async () => {
+  const original = stateWith(
+    storedMatch("existing", {
+      status: "completed",
+      result: "Won 3-1",
+      report: {
+        matchId: "stored-existing",
+        observations: ["Keep width"],
+        transcript: "Coach notes",
+        updatedAt: "2026-09-16T18:00:00Z",
+      },
+    }),
+  );
+  const snapshot = structuredClone(original);
+
+  await assert.rejects(
+    refreshTrackerState(
+      async () => original,
+      async () => ({
+        matches: [
+          incoming("existing", {
+            opponent: "Changed opponent",
+            startsAt: "2026-09-17T10:00:00-04:00",
+            endsAt: "2026-09-17T10:45:00-04:00",
+            venue: "Changed venue",
+            court: "Court 7",
+          }),
+        ],
+      }),
+      async () => {
+        throw new Error("Persistence unavailable");
+      },
+    ),
+    /Persistence unavailable/,
+  );
+
+  assert.deepEqual(original, snapshot);
 });
 
 test("counts consecutive refresh failures and preserves alert state", () => {
