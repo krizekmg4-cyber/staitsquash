@@ -326,6 +326,42 @@ test("allows identical duplicate player records", () => {
   assert.equal(feed.players?.length, 2);
 });
 
+test("parsed feeds reject runtime mutation of match collections", () => {
+  const feed = parseClubLockerFeed({
+    matches: [incoming("existing")],
+  });
+  const mutableMatches = feed.matches as ClubLockerFeed["matches"];
+
+  assert.throws(() => mutableMatches.push(incoming("new-match")), TypeError);
+  assert.equal(feed.matches.length, 1);
+  assert.equal(feed.matches[0]?.externalId, "existing");
+});
+
+test("parsed feeds reject runtime mutation of match fields", () => {
+  const feed = parseClubLockerFeed({
+    matches: [incoming("existing")],
+  });
+  const mutableMatch = feed.matches[0] as ClubLockerFeed["matches"][number];
+
+  assert.throws(() => {
+    mutableMatch.opponent = "Changed opponent";
+  }, TypeError);
+  assert.equal(feed.matches[0]?.opponent, "Original opponent");
+});
+
+test("parsed feeds reject runtime mutation of player records", () => {
+  const feed = parseClubLockerFeed({
+    matches: [],
+    players: [{ id: "player-1", name: "Player One" }],
+  });
+  const mutablePlayer = feed.players?.[0] as { id: string; name: string };
+
+  assert.throws(() => {
+    mutablePlayer.name = "Changed player";
+  }, TypeError);
+  assert.equal(feed.players?.[0]?.name, "Player One");
+});
+
 test("mutable replacement players do not share validated feed records", () => {
   const feed = parseClubLockerFeed({
     matches: [],

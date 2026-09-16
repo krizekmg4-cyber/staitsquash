@@ -15,7 +15,7 @@ import {
   parseClubLockerFeed,
   recordRefreshFailure,
   refreshTrackerState,
-  type ClubLockerFeed,
+  type ReadonlyClubLockerFeed,
   type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
@@ -154,7 +154,7 @@ async function saveState(state: TrackerState): Promise<void> {
     .where(eq(trackerStateTable.id, "main"));
 }
 
-async function fetchClubLockerFeed(): Promise<ClubLockerFeed> {
+async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
   const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
   if (!url) {
     throw new Error("Club Locker feed is not configured");

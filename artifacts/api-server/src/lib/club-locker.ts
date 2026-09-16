@@ -193,7 +193,7 @@ function readRequiredString(value: unknown, field: string, index: number): strin
   return value.trim();
 }
 
-export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
+export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
   if (
     !value ||
     typeof value !== "object" ||
@@ -292,7 +292,14 @@ export function parseClubLockerFeed(value: unknown): ClubLockerFeed {
       })
     : undefined;
 
-  return { matches, players };
+  for (const match of matches) Object.freeze(match);
+  Object.freeze(matches);
+  if (players) {
+    for (const player of players) Object.freeze(player);
+    Object.freeze(players);
+  }
+
+  return Object.freeze({ matches, players });
 }
 
 export function mergeClubLockerFeed(
@@ -410,7 +417,7 @@ export function mergeClubLockerFeed(
 
 export async function refreshTrackerState(
   loadState: () => Promise<ReadonlyTrackerState>,
-  loadFeed: () => Promise<ClubLockerFeed>,
+  loadFeed: () => Promise<ReadonlyClubLockerFeed>,
   persistState: (state: TrackerState) => Promise<void>,
   alertThreshold = 3,
 ): Promise<TrackerState> {
