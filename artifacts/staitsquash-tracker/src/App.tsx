@@ -39,8 +39,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
 
-const queryClient = new QueryClient();
-
 type ViewMode = 'players' | 'coaches';
 
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
@@ -423,7 +421,8 @@ function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerStat
     setLogoError('');
     setUploading(true);
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('Too large');
+      const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+      if (!allowedTypes.has(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Invalid logo');
       const response = await fetch('/api/tracker/logo', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
       if (!response.ok) throw new Error('Upload failed');
       const uploaded = await response.json() as { objectPath: string };
@@ -440,10 +439,10 @@ function SettingsEditor({ state, onClose, onSave, saving }: { state: TrackerStat
     <Modal title="Tracker settings" eyebrow="Players, coaches & branding" onClose={onClose}>
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
-        <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button type="button" onClick={() => setLogoPath(null)} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
+        <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button data-testid="button-remove-logo" type="button" onClick={() => setLogoPath(null)} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
         <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <input className="field" key={`${person.id}-${index}`} value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" />)}</div><p className="mt-2 text-[11px] text-muted-foreground">These five names appear when assigning a coach to a match.</p></section>
       </div>
-      <button disabled={saving || uploading || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoPath } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
+      <button data-testid="button-save-settings" disabled={saving || uploading || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => onSave({ coaches, branding: { name: brandName.trim(), logoPath } })} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
     </Modal>
   );
 }
@@ -784,6 +783,7 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  const [queryClient] = useState(() => new QueryClient());
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

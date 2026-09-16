@@ -1,7 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
+
+afterEach(() => cleanup());
 
 const initialHealth = {
   consecutiveFailures: 0,
@@ -105,5 +107,119 @@ describe('tracker health polling', () => {
     expect(screen.getByTestId('input-venue')).toHaveValue(unsavedValues.venue);
     expect(screen.getByTestId('input-court')).toHaveValue(unsavedValues.court);
     expect(screen.getByTestId('select-coach')).toHaveValue(unsavedValues.coachId);
+  });
+});
+
+describe('tracker logo settings', () => {
+  let persistedTracker: typeof tracker;
+  let uploadedPaths: string[];
+
+  beforeEach(() => {
+    persistedTracker = structuredClone(tracker);
+    uploadedPaths = ['/objects/uploads/logo-one', '/objects/uploads/logo-two'];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/tracker/health')) {
+        return Response.json(initialHealth);
+      }
+      if (url.endsWith('/api/tracker') && (!init?.method || init.method === 'GET')) {
+        return Response.json(persistedTracker);
+      }
+      if (url.endsWith('/api/tracker/logo') && init?.method === 'POST') {
+        const objectPath = uploadedPaths.shift();
+        if (!objectPath) return Response.json({ error: 'No path' }, { status: 500 });
+        return Response.json({ objectPath });
+      }
+      if (url.endsWith('/api/tracker/settings') && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as {
+          branding: typeof persistedTracker.branding;
+          coaches: typeof persistedTracker.coaches;
+        };
+        persistedTracker = { ...persistedTracker, ...body };
+        return Response.json(persistedTracker);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const validPng = (name: string) => new File(
+    [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+    name,
+    { type: 'image/png' },
+  );
+
+  it('persists an uploaded logo across reload, replacement, and removal', async () => {
+    const firstRender = render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.change(screen.getByTestId('input-logo-file'), {
+      target: { files: [validPng('first.png')] },
+    });
+    await waitFor(() => expect(screen.getByAltText('Logo preview')).toHaveAttribute(
+      'src',
+      '/api/storage/objects/uploads/logo-one',
+    ));
+    fireEvent.click(screen.getByTestId('button-save-settings'));
+    await screen.findByText('Settings saved');
+    firstRender.unmount();
+
+    const reloaded = render(<App />);
+    await waitFor(() => expect(reloaded.getByRole('banner').querySelector('img')).toHaveAttribute(
+      'src',
+      '/api/storage/objects/uploads/logo-one',
+    ));
+    fireEvent.click(screen.getByTestId('button-settings'));
+    fireEvent.change(screen.getByTestId('input-logo-file'), {
+      target: { files: [validPng('replacement.png')] },
+    });
+    await waitFor(() => expect(screen.getByAltText('Logo preview')).toHaveAttribute(
+      'src',
+      '/api/storage/objects/uploads/logo-two',
+    ));
+    fireEvent.click(screen.getByTestId('button-save-settings'));
+    await screen.findByText('Settings saved');
+    expect(reloaded.getByRole('banner').querySelector('img')).toHaveAttribute(
+      'src',
+      '/api/storage/objects/uploads/logo-two',
+    );
+
+    fireEvent.click(screen.getByTestId('button-settings'));
+    fireEvent.click(screen.getByTestId('button-remove-logo'));
+    fireEvent.click(screen.getByTestId('button-save-settings'));
+    await screen.findByText('Settings saved');
+    expect(reloaded.getByRole('banner').querySelector('img')).toBeNull();
+    expect(persistedTracker.branding.logoPath).toBeNull();
+    reloaded.unmount();
+
+    render(<App />);
+    await screen.findByTestId('button-settings');
+    expect(screen.getByRole('banner').querySelector('img')).toBeNull();
+  });
+
+  it('shows a clear error for unsupported and oversized logo files', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    const input = screen.getByTestId('input-logo-file');
+
+    fireEvent.change(input, {
+      target: { files: [new File(['plain text'], 'logo.txt', { type: 'text/plain' })] },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a PNG, JPG, WebP, or GIF image up to 5 MB.',
+    );
+
+    fireEvent.change(input, {
+      target: { files: [new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'huge.png', { type: 'image/png' })] },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose a PNG, JPG, WebP, or GIF image up to 5 MB.',
+    );
+    expect(fetch).not.toHaveBeenCalledWith(
+      '/api/tracker/logo',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 });
