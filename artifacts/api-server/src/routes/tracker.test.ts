@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
-import { createTrackerRouter, isLogoImage } from "./tracker.ts";
+import {
+  createTrackerRouter,
+  isLogoImage,
+  parsePersistedTrackerState,
+} from "./tracker.ts";
 import type { TrackerState } from "../lib/club-locker.ts";
 
 const healthyState = (): TrackerState => ({
@@ -27,6 +31,72 @@ test("logo validation checks actual bytes rather than claimed MIME type", () => 
     true,
   );
   assert.equal(isLogoImage(Buffer.alloc(5 * 1024 * 1024 + 1), "image/png"), false);
+});
+
+test("persisted tracker validation identifies malformed nested records", () => {
+  const validState = healthyState();
+  validState.branding = { name: "StaitSquash", logoPath: null };
+  validState.matches = [{
+    id: "match-1",
+    externalId: null,
+    playerId: "player-1",
+    opponent: "Opponent",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "Venue",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "completed",
+    result: "Won 3-1",
+    report: {
+      matchId: "match-1",
+      observations: ["Strong length.", "Recovered well.", "Stayed composed."],
+      transcript: null,
+      audioPath: null,
+      updatedAt: "2026-09-16T11:00:00.000Z",
+    },
+  }];
+  validState.refreshHealth.pendingRecoveries = [{
+    failedAttempts: 2,
+    outageStartedAt: "2026-09-16T09:00:00.000Z",
+    recoveredAt: "2026-09-16T09:10:00.000Z",
+    outageDurationMs: 600_000,
+  }];
+
+  const corruptions: Array<[string, (snapshot: Record<string, any>) => void, RegExp]> = [
+    ["match", (snapshot) => {
+      snapshot.matches[0].startsAt = "not-a-date";
+    }, /matches\.0\.startsAt/],
+    ["report", (snapshot) => {
+      snapshot.matches[0].report.observations = "not-an-array";
+    }, /matches\.0\.report\.observations/],
+    ["person", (snapshot) => {
+      snapshot.players[0].name = 42;
+    }, /players\.0\.name/],
+    ["branding", (snapshot) => {
+      snapshot.branding.logoPath = "/unsafe/logo.png";
+    }, /branding\.logoPath/],
+    ["refresh health", (snapshot) => {
+      snapshot.refreshHealth.consecutiveFailures = -1;
+    }, /refreshHealth\.consecutiveFailures/],
+    ["recovery", (snapshot) => {
+      snapshot.refreshHealth.pendingRecoveries[0].failedAttempts = 0;
+    }, /refreshHealth\.pendingRecoveries\.0\.failedAttempts/],
+  ];
+
+  for (const [name, corrupt, expectedPath] of corruptions) {
+    const snapshot = structuredClone(validState) as unknown as Record<string, any>;
+    corrupt(snapshot);
+    assert.throws(
+      () => parsePersistedTrackerState(snapshot),
+      (error: Error) => {
+        assert.match(error.message, /Stored tracker snapshot is invalid/);
+        assert.match(error.message, /Repair or replace the "main" tracker_state record/);
+        assert.match(error.message, expectedPath, name);
+        return true;
+      },
+    );
+  }
 });
 
 async function withTrackerServer(

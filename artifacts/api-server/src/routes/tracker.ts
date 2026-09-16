@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   GetTrackerResponse,
+  PersistedTrackerState,
   GetTrackerHealthResponse,
   GetPlayerTrackerParams,
   GetPlayerTrackerResponse,
@@ -18,6 +19,7 @@ import {
   UpdateMatchBody,
   UpdateMatchParams,
   UpdateMatchResponse,
+  type PersistedTrackerState as PersistedTrackerSnapshot,
 } from "@workspace/api-zod";
 import {
   clearPendingRecovery,
@@ -108,17 +110,25 @@ function getAlertThreshold(): number {
   return Number.isInteger(configured) && configured > 0 ? configured : 3;
 }
 
-function normalizeState(state: TrackerState): ReadonlyTrackerState {
+export function parsePersistedTrackerState(
+  value: unknown,
+): PersistedTrackerSnapshot {
+  const result = PersistedTrackerState.safeParse(value);
+  if (result.success) return result.data;
+
+  const details = result.error.issues
+    .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+    .join("; ");
+  throw new Error(
+    `Stored tracker snapshot is invalid. Repair or replace the "main" tracker_state record. Validation errors: ${details}`,
+  );
+}
+
+function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
   const alertThreshold = getAlertThreshold();
-  const storedBranding = state.branding as TrackerState["branding"] & {
-    logoUrl?: string | null;
-  };
-  const storedRefreshHealth = state.refreshHealth as TrackerState["refreshHealth"] & {
-    pendingRecovery?: RefreshRecovery | null;
-    pendingRecoveries?: RefreshRecovery[];
-  };
+  const storedBranding = state.branding;
+  const storedRefreshHealth = state.refreshHealth;
   return freezeTrackerState({
-    ...state,
     players: state.players.map((player) => ({ ...player })),
     coaches: state.coaches.map((coach) => ({ ...coach })),
     branding: storedBranding
@@ -137,6 +147,8 @@ function normalizeState(state: TrackerState): ReadonlyTrackerState {
           }
         : null,
     })),
+    lastUpdatedAt: state.lastUpdatedAt,
+    source: state.source,
     refreshHealth: state.refreshHealth
       ? {
           ...state.refreshHealth,
@@ -146,10 +158,10 @@ function normalizeState(state: TrackerState): ReadonlyTrackerState {
               ? state.refreshHealth.lastFailureAt
               : null),
           pendingRecoveries:
-            storedRefreshHealth.pendingRecoveries?.map((recovery) => ({
+            storedRefreshHealth?.pendingRecoveries?.map((recovery) => ({
               ...recovery,
             })) ??
-            (storedRefreshHealth.pendingRecovery
+            (storedRefreshHealth?.pendingRecovery
               ? [{ ...storedRefreshHealth.pendingRecovery }]
               : []),
         }
@@ -171,14 +183,14 @@ async function getState(): Promise<ReadonlyTrackerState> {
     .from(trackerStateTable)
     .where(eq(trackerStateTable.id, "main"));
 
-  if (row) return normalizeState(row.data as TrackerState);
+  if (row) return normalizeState(parsePersistedTrackerState(row.data));
 
   const [created] = await db
     .insert(trackerStateTable)
     .values({ id: "main", data: INITIAL_STATE })
     .returning();
 
-  return normalizeState(created.data as TrackerState);
+  return normalizeState(parsePersistedTrackerState(created.data));
 }
 
 async function saveState(state: TrackerState): Promise<void> {
@@ -211,7 +223,7 @@ async function mutateStateInTransaction<T>(
       .for("update");
     if (!row) throw new Error("Tracker state row could not be locked");
 
-    let current = normalizeState(row.data as TrackerState);
+    let current = normalizeState(parsePersistedTrackerState(row.data));
     return operation(
       async () => current,
       async (next) => {
