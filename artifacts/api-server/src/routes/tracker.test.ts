@@ -16,7 +16,7 @@ const healthyState = (): TrackerState => ({
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
-    pendingRecovery: null,
+    pendingRecoveries: [],
   },
 });
 
@@ -154,7 +154,7 @@ test("refresh route succeeds while a recovery webhook is retried until delivered
     outageDurationMs: 10 * 60_000,
   };
   const state = healthyState();
-  state.refreshHealth.pendingRecovery = recovery;
+  state.refreshHealth.pendingRecoveries = [recovery];
   const webhookPayloads: Record<string, unknown>[] = [];
   let webhookFails = true;
 
@@ -189,6 +189,72 @@ test("refresh route succeeds while a recovery webhook is retried until delivered
       assert.equal(successfulRetry.status, 200);
       assert.equal(webhookPayloads.length, 2);
       assert.deepEqual(webhookPayloads[1], webhookPayloads[0]);
+
+      const afterDelivery = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(afterDelivery.status, 200);
+      assert.equal(webhookPayloads.length, 2);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries({
+      CLUB_LOCKER_SCHEDULE_URL: originalEnvironment.scheduleUrl,
+      STAFF_ALERT_WEBHOOK_URL: originalEnvironment.webhookUrl,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("refresh route delivers queued recoveries once in incident order", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = {
+    scheduleUrl: process.env["CLUB_LOCKER_SCHEDULE_URL"],
+    webhookUrl: process.env["STAFF_ALERT_WEBHOOK_URL"],
+  };
+  const state = healthyState();
+  state.refreshHealth.pendingRecoveries = [
+    {
+      failedAttempts: 2,
+      outageStartedAt: "2026-09-16T10:00:00.000Z",
+      recoveredAt: "2026-09-16T10:10:00.000Z",
+      outageDurationMs: 10 * 60_000,
+    },
+    {
+      failedAttempts: 3,
+      outageStartedAt: "2026-09-16T11:00:00.000Z",
+      recoveredAt: "2026-09-16T11:15:00.000Z",
+      outageDurationMs: 15 * 60_000,
+    },
+  ];
+  const webhookPayloads: Record<string, unknown>[] = [];
+
+  process.env["CLUB_LOCKER_SCHEDULE_URL"] = "https://schedule.test/feed";
+  process.env["STAFF_ALERT_WEBHOOK_URL"] = "https://alerts.test/hook";
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://schedule.test/feed") {
+      return Response.json({ matches: [] });
+    }
+    if (url === "https://alerts.test/hook") {
+      webhookPayloads.push(JSON.parse(String(init?.body)));
+      return new Response(null, { status: 204 });
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    await withTrackerServer(state, async (url) => {
+      const recovery = await originalFetch(`${url}/tracker/refresh`, {
+        method: "POST",
+      });
+      assert.equal(recovery.status, 200);
+      assert.deepEqual(
+        webhookPayloads.map((payload) => payload.outageStartedAt),
+        ["2026-09-16T10:00:00.000Z", "2026-09-16T11:00:00.000Z"],
+      );
 
       const afterDelivery = await originalFetch(`${url}/tracker/refresh`, {
         method: "POST",

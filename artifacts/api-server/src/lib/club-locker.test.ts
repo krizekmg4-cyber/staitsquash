@@ -71,7 +71,7 @@ const stateWith = (...matches: TrackerState["matches"]): TrackerState => ({
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
-    pendingRecovery: null,
+    pendingRecoveries: [],
   },
 });
 
@@ -493,7 +493,7 @@ test("counts consecutive refresh failures and preserves alert state", () => {
     firstFailureAt: "2026-09-16T12:00:00.000Z",
     lastFailureAt: "2026-09-16T12:05:00.000Z",
     alertSentAt: "2026-09-16T12:01:00.000Z",
-    pendingRecovery: null,
+    pendingRecoveries: [],
   });
 });
 
@@ -516,16 +516,16 @@ test("successful refresh clears the failure condition and queues its recovery", 
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
-    pendingRecovery: {
+    pendingRecoveries: [{
       failedAttempts: 1,
       outageStartedAt: failing.refreshHealth.firstFailureAt,
       recoveredAt: "2026-09-16T12:20:00.000Z",
       outageDurationMs: 20 * 60_000,
-    },
+    }],
   });
 });
 
-test("successful refresh preserves a pending recovery until delivery succeeds", () => {
+test("successful refresh preserves pending recoveries until delivery succeeds", () => {
   const pending = {
     failedAttempts: 3,
     outageStartedAt: "2026-09-16T12:00:00.000Z",
@@ -533,29 +533,29 @@ test("successful refresh preserves a pending recovery until delivery succeeds", 
     outageDurationMs: 20 * 60_000,
   };
   const state = stateWith();
-  state.refreshHealth.pendingRecovery = pending;
+  state.refreshHealth.pendingRecoveries = [pending];
 
   const retried = clearRefreshFailures(
     state,
     3,
     "2026-09-16T12:30:00.000Z",
   );
-  assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
-  assert.notEqual(retried.refreshHealth.pendingRecovery, pending);
+  assert.deepEqual(retried.refreshHealth.pendingRecoveries, [pending]);
+  assert.notEqual(retried.refreshHealth.pendingRecoveries[0], pending);
 
   const delivered = clearPendingRecovery(retried);
-  assert.equal(delivered.refreshHealth.pendingRecovery, null);
-  assert.deepEqual(retried.refreshHealth.pendingRecovery, pending);
+  assert.deepEqual(delivered.refreshHealth.pendingRecoveries, []);
+  assert.deepEqual(retried.refreshHealth.pendingRecoveries, [pending]);
 });
 
 test("mutable failure state does not share loaded recovery metadata", () => {
   const loaded = stateWith();
-  loaded.refreshHealth.pendingRecovery = {
+  loaded.refreshHealth.pendingRecoveries = [{
     failedAttempts: 3,
     outageStartedAt: "2026-09-16T12:00:00.000Z",
     recoveredAt: "2026-09-16T12:20:00.000Z",
     outageDurationMs: 20 * 60_000,
-  };
+  }];
 
   const replacement = recordRefreshFailure(
     loaded,
@@ -563,12 +563,49 @@ test("mutable failure state does not share loaded recovery metadata", () => {
     "2026-09-16T12:30:00.000Z",
   );
   assert.notEqual(
-    replacement.refreshHealth.pendingRecovery,
-    loaded.refreshHealth.pendingRecovery,
+    replacement.refreshHealth.pendingRecoveries[0],
+    loaded.refreshHealth.pendingRecoveries[0],
   );
 
-  replacement.refreshHealth.pendingRecovery!.failedAttempts = 4;
-  assert.equal(loaded.refreshHealth.pendingRecovery.failedAttempts, 3);
+  replacement.refreshHealth.pendingRecoveries[0]!.failedAttempts = 4;
+  assert.equal(loaded.refreshHealth.pendingRecoveries[0]!.failedAttempts, 3);
+});
+
+test("back-to-back alerted outages queue recoveries in order", () => {
+  const firstOutage = recordRefreshFailure(
+    stateWith(),
+    1,
+    "2026-09-16T12:00:00.000Z",
+  );
+  firstOutage.refreshHealth.alertSentAt = "2026-09-16T12:00:00.000Z";
+  const firstRecovery = clearRefreshFailures(
+    firstOutage,
+    1,
+    "2026-09-16T12:10:00.000Z",
+  );
+  const secondOutage = recordRefreshFailure(
+    firstRecovery,
+    1,
+    "2026-09-16T12:20:00.000Z",
+  );
+  secondOutage.refreshHealth.alertSentAt = "2026-09-16T12:20:00.000Z";
+  const secondRecovery = clearRefreshFailures(
+    secondOutage,
+    1,
+    "2026-09-16T12:35:00.000Z",
+  );
+
+  assert.deepEqual(
+    secondRecovery.refreshHealth.pendingRecoveries.map(
+      (recovery) => recovery.outageStartedAt,
+    ),
+    ["2026-09-16T12:00:00.000Z", "2026-09-16T12:20:00.000Z"],
+  );
+  assert.equal(
+    clearPendingRecovery(secondRecovery).refreshHealth.pendingRecoveries[0]
+      ?.outageStartedAt,
+    "2026-09-16T12:20:00.000Z",
+  );
 });
 
 test("reports recovery details only after an alerted failure", () => {

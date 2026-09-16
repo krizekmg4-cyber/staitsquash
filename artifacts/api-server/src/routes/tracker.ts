@@ -82,7 +82,7 @@ const INITIAL_STATE: TrackerState = {
     firstFailureAt: null,
     lastFailureAt: null,
     alertSentAt: null,
-    pendingRecovery: null,
+    pendingRecoveries: [],
   },
 };
 
@@ -96,6 +96,10 @@ function getAlertThreshold(): number {
 
 function normalizeState(state: TrackerState): TrackerState {
   const alertThreshold = getAlertThreshold();
+  const storedRefreshHealth = state.refreshHealth as TrackerState["refreshHealth"] & {
+    pendingRecovery?: RefreshRecovery | null;
+    pendingRecoveries?: RefreshRecovery[];
+  };
   return {
     ...state,
     refreshHealth: state.refreshHealth
@@ -106,7 +110,13 @@ function normalizeState(state: TrackerState): TrackerState {
             (state.refreshHealth.consecutiveFailures > 0
               ? state.refreshHealth.lastFailureAt
               : null),
-          pendingRecovery: state.refreshHealth.pendingRecovery ?? null,
+          pendingRecoveries:
+            storedRefreshHealth.pendingRecoveries?.map((recovery) => ({
+              ...recovery,
+            })) ??
+            (storedRefreshHealth.pendingRecovery
+              ? [{ ...storedRefreshHealth.pendingRecovery }]
+              : []),
         }
       : {
           consecutiveFailures: 0,
@@ -114,7 +124,7 @@ function normalizeState(state: TrackerState): TrackerState {
           firstFailureAt: null,
           lastFailureAt: null,
           alertSentAt: null,
-          pendingRecovery: null,
+          pendingRecoveries: [],
         },
   };
 }
@@ -324,11 +334,13 @@ export function createTrackerRouter(
       persistState,
       alertThreshold,
     );
-    const recovery = state.refreshHealth.pendingRecovery;
-    if (recovery) {
+    let notificationState = state;
+    while (notificationState.refreshHealth.pendingRecoveries.length > 0) {
+      const recovery = notificationState.refreshHealth.pendingRecoveries[0]!;
       try {
         await alertStaffOfRecovery(recovery);
-        await persistState(clearPendingRecovery(state));
+        notificationState = clearPendingRecovery(notificationState);
+        await persistState(notificationState);
         req.log.info(
           {
             failedAttempts: recovery.failedAttempts,
@@ -341,6 +353,7 @@ export function createTrackerRouter(
           { err: alertError },
           "Could not alert staff about refresh recovery",
         );
+        break;
       }
     }
     res.json(RefreshTrackerResponse.parse(state));

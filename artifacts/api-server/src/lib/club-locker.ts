@@ -45,7 +45,7 @@ export type RefreshHealth = {
   firstFailureAt: string | null;
   lastFailureAt: string | null;
   alertSentAt: string | null;
-  pendingRecovery: RefreshRecovery | null;
+  pendingRecoveries: RefreshRecovery[];
 };
 
 export type RefreshRecovery = {
@@ -55,10 +55,10 @@ export type RefreshRecovery = {
   outageDurationMs: number;
 };
 
-function cloneRefreshRecovery(
-  recovery: DeepReadonly<RefreshRecovery> | null,
-): RefreshRecovery | null {
-  return recovery === null ? null : { ...recovery };
+function cloneRefreshRecoveries(
+  recoveries: readonly DeepReadonly<RefreshRecovery>[],
+): RefreshRecovery[] {
+  return recoveries.map((recovery) => ({ ...recovery }));
 }
 
 export function getRefreshRecovery(
@@ -91,10 +91,11 @@ export function clearRefreshFailures(
   alertThreshold: number,
   recoveredAt = new Date().toISOString(),
 ): TrackerState {
-  const pendingRecovery = cloneRefreshRecovery(
-    state.refreshHealth.pendingRecovery ??
-      getRefreshRecovery(state, recoveredAt),
+  const pendingRecoveries = cloneRefreshRecoveries(
+    state.refreshHealth.pendingRecoveries,
   );
+  const recovery = getRefreshRecovery(state, recoveredAt);
+  if (recovery) pendingRecoveries.push(recovery);
   return {
     players: state.players.map((player) => ({ ...player })),
     coaches: state.coaches.map((coach) => ({ ...coach })),
@@ -107,7 +108,7 @@ export function clearRefreshFailures(
       firstFailureAt: null,
       lastFailureAt: null,
       alertSentAt: null,
-      pendingRecovery,
+      pendingRecoveries,
     },
   };
 }
@@ -121,7 +122,9 @@ export function clearPendingRecovery(state: ReadonlyTrackerState): TrackerState 
     source: state.source,
     refreshHealth: {
       ...state.refreshHealth,
-      pendingRecovery: null,
+      pendingRecoveries: cloneRefreshRecoveries(
+        state.refreshHealth.pendingRecoveries.slice(1),
+      ),
     },
   };
 }
@@ -143,7 +146,9 @@ export function recordRefreshFailure(
       firstFailureAt: state.refreshHealth.firstFailureAt ?? failedAt,
       lastFailureAt: failedAt,
       alertSentAt: state.refreshHealth.alertSentAt,
-      pendingRecovery: cloneRefreshRecovery(state.refreshHealth.pendingRecovery),
+      pendingRecoveries: cloneRefreshRecoveries(
+        state.refreshHealth.pendingRecoveries,
+      ),
     },
   };
 }
@@ -388,8 +393,8 @@ export function mergeClubLockerFeed(
     coaches: state.coaches.map((coach) => ({ ...coach })),
     refreshHealth: {
       ...state.refreshHealth,
-      pendingRecovery: cloneRefreshRecovery(
-        state.refreshHealth.pendingRecovery,
+      pendingRecoveries: cloneRefreshRecoveries(
+        state.refreshHealth.pendingRecoveries,
       ),
     },
     players: [...playersById.values()],
