@@ -7,3 +7,18 @@ uri = "file://artifacts/staitsquash-video/public/audio/bg_music.mp3"
 type = "audio"
 title = "StaitSquash background music"
 description = "Generated music: Driving modern instrumental background music scoring a vertical youth squash tournament product walkthrough. Tight muted percussion, warm analog bass, crisp marimba-like accents and …"
+logical_id = "672d9b19-49c0-47fc-8518-6a9fb1ad0f89"
+
+[[outputs]]
+id = "3aZwdxcVO2RCj4qZFW4Fw"
+uri = "file://exports/staitsquash-project-source.zip"
+type = "unspecified"
+title = "StaitSquash Project Source"
+description = "Downloadable ZIP of the project source code. Dependencies, build outputs, caches, Git history, local agent files, and environment/secret files are excluded."
+logical_id = "f1ebd35b-f979-4c2b-b46f-7442d3f2b2df"
+content_hash = "sha256:71e0b193bef321d52b7291e30dba67398a67cf0f4744b05c39455b181cd6ce96"
+size = 36903190
+mtime_ms = 1790100622743
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:1ce21c14-edcc-4991-9dc9-61ea0479df43/f1ebd35b-f979-4c2b-b46f-7442d3f2b2df/63f3515a-3e07-4cc8-a8c8-24851ca6ce2e"
+storage_version_token = "1790100628154247"
+content_type = "application/octet-stream"
