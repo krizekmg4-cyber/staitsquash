@@ -36,6 +36,7 @@ import {
   type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
+import { drawsConfigFromEnv, fetchClubLockerDraws } from "../lib/club-locker-draws.js";
 import { ObjectStorageService } from "../lib/object-storage.js";
 import { requireStaff } from "../middlewares/requireStaff.js";
 
@@ -270,9 +271,16 @@ async function mutateStateInTransaction<T>(
 }
 
 async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
+  const drawsConfig = drawsConfigFromEnv();
+  if (drawsConfig) {
+    return parseClubLockerFeed(await fetchClubLockerDraws(drawsConfig));
+  }
+
   const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
   if (!url) {
-    throw new Error("Club Locker feed is not configured");
+    throw new Error(
+      "Club Locker is not configured. Set CLUB_LOCKER_TOURNAMENT_IDS and CLUB_LOCKER_PLAYER_IDS",
+    );
   }
 
   const controller = new AbortController();
