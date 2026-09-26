@@ -1,0 +1,518 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: tracker
+    description: Tournament tracker operations
+  - name: storage
+    description: Protected App Storage operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /tracker:
+    get:
+      operationId: getTracker
+      tags: [tracker]
+      summary: Get the complete tournament tracker
+      responses:
+        "200":
+          description: Current tracker state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
+  /tracker/health:
+    get:
+      operationId: getTrackerHealth
+      tags: [tracker]
+      summary: Get schedule refresh and staff notification health
+      responses:
+        "200":
+          description: Current tracker health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshHealth"
+  /players/{shareToken}/tracker:
+    get:
+      operationId: getPlayerTracker
+      tags: [tracker]
+      summary: Get a read-only tracker view for one player
+      parameters:
+        - name: shareToken
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 128
+      responses:
+        "200":
+          description: Player schedule, history, coaches, and branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerTrackerView"
+        "404":
+          description: Player link not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /tracker/settings:
+    put:
+      operationId: saveTrackerSettings
+      tags: [tracker]
+      summary: Replace the player roster, coach options, and tracker branding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrackerSettingsInput"
+      responses:
+        "200":
+          description: Updated tracker state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
+  /tracker/players/{playerId}/share-token:
+    post:
+      operationId: rotatePlayerShareToken
+      tags: [tracker]
+      summary: Revoke a player's current share link and create a new one
+      parameters:
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Player with a new share token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "404":
+          description: Player not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /tracker/logo:
+    post:
+      operationId: uploadTrackerLogo
+      tags: [tracker, storage]
+      summary: Validate and upload a tracker logo to App Storage
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+          image/gif:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Stored object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerLogo"
+        "400":
+          description: Invalid logo image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Logo exceeds 5 MB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteUnusedTrackerLogo
+      tags: [tracker, storage]
+      summary: Delete an uploaded tracker logo that is not referenced by saved settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrackerLogoDeletion"
+      responses:
+        "204":
+          description: Unused logo deleted
+        "400":
+          description: Invalid object path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /storage/objects/{objectPath}:
+    get:
+      operationId: getStorageObject
+      tags: [storage]
+      summary: Serve an uploaded object from App Storage
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stored object bytes
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Object not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /matches/{matchId}:
+    patch:
+      operationId: updateMatch
+      tags: [tracker]
+      summary: Update match details, assignment, status, or result
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchUpdate"
+      responses:
+        "200":
+          description: Updated match
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Match"
+  /matches/{matchId}/report:
+    put:
+      operationId: saveCoachReport
+      tags: [tracker]
+      summary: Save exactly three coach observations
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachReportInput"
+      responses:
+        "200":
+          description: Saved report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachReport"
+  /matches/{matchId}/report/audio:
+    post:
+      operationId: uploadCoachReportAudio
+      tags: [tracker]
+      summary: Store a recorded coach voice note in App Storage
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          audio/webm:
+            schema: { type: string, format: binary }
+          audio/ogg:
+            schema: { type: string, format: binary }
+          audio/mp4:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Stored voice note path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoredObject"
+        "400":
+          description: Invalid or empty audio recording
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Match not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /tracker/refresh:
+    post:
+      operationId: refreshTracker
+      tags: [tracker]
+      summary: Import the latest schedule from the configured Club Locker feed
+      responses:
+        "200":
+          description: Tracker state after a successful Club Locker import
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerState"
+        "502":
+          description: Club Locker could not be read or returned an invalid schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  schemas:
+    TrackerLogoDeletion:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: '^/objects/uploads/logos/[0-9a-f-]+$'
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Coach:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    Player:
+      type: object
+      required: [id, name, shareToken]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        shareToken:
+          type: string
+          minLength: 32
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_-]+$"
+    PublicPlayer:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    TrackerBranding:
+      type: object
+      required: [name, logoPath]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        logoPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/(?:logos/)?[0-9a-f-]+$"
+          maxLength: 100
+    TrackerLogo:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: "^/objects/uploads/logos/[0-9a-f-]+$"
+    StoredObject:
+      type: object
+      required: [objectPath]
+      properties:
+        objectPath:
+          type: string
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
+    TrackerSettingsInput:
+      type: object
+      required: [coaches, branding]
+      properties:
+        coaches:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Coach"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
+    CoachReport:
+      type: object
+      required: [matchId, observations, audioPath, updatedAt]
+      properties:
+        matchId: { type: string }
+        observations:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: string }
+        transcript:
+          type: ["string", "null"]
+        audioPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
+        updatedAt: { type: string, format: date-time }
+    CoachReportInput:
+      type: object
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: string, minLength: 1, maxLength: 220 }
+        transcript:
+          type: ["string", "null"]
+        audioPath:
+          type: ["string", "null"]
+          pattern: "^/objects/uploads/[0-9a-f-]+$"
+    Match:
+      type: object
+      required: [id, externalId, playerId, opponent, startsAt, endsAt, venue, court, coachId, status]
+      properties:
+        id: { type: string }
+        externalId: { type: ["string", "null"] }
+        playerId: { type: string }
+        opponent: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        venue: { type: string }
+        court: { type: string }
+        coachId: { type: string }
+        status:
+          type: string
+          enum: [upcoming, completed]
+        result: { type: ["string", "null"] }
+        report:
+          oneOf:
+            - $ref: "#/components/schemas/CoachReport"
+            - type: "null"
+    MatchUpdate:
+      type: object
+      properties:
+        opponent: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        venue: { type: string }
+        court: { type: string }
+        coachId: { type: string }
+        status:
+          type: string
+          enum: [upcoming, completed]
+        result: { type: ["string", "null"] }
+    TrackerState:
+      type: object
+      required: [players, coaches, matches, lastUpdatedAt, source, refreshHealth, branding]
+      properties:
+        players:
+          type: array
+          items:
+            $ref: "#/components/schemas/Player"
+        coaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coach"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+        lastUpdatedAt: { type: string, format: date-time }
+        source:
+          type: string
+          enum: [sample, club-locker]
+        refreshHealth:
+          $ref: "#/components/schemas/RefreshHealth"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
+    PlayerTrackerView:
+      type: object
+      required: [player, coaches, matches, branding, lastUpdatedAt]
+      properties:
+        player:
+          $ref: "#/components/schemas/PublicPlayer"
+        coaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coach"
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/Match"
+        branding:
+          $ref: "#/components/schemas/TrackerBranding"
+        lastUpdatedAt: { type: string, format: date-time }
+    RefreshHealth:
+      type: object
+      required: [consecutiveFailures, alertThreshold, lastFailureAt, alertSentAt, pendingRecoveryNotices]
+      properties:
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+        alertThreshold:
+          type: integer
+          minimum: 1
+        lastFailureAt:
+          type: ["string", "null"]
+          format: date-time
+        alertSentAt:
+          type: ["string", "null"]
+          format: date-time
+        pendingRecoveryNotices:
+          type: integer
+          minimum: 0
+          description: Recovery notices waiting to be delivered to staff
+
