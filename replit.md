@@ -19,7 +19,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `CLUB_LOCKER_PLAYER_IDS`: US Squash member IDs of the players to track, comma-separated. Only their singles matches are imported.
 - `CLUB_LOCKER_TIMEZONE` (optional): where the tournament is played, default `America/New_York`.
 
-Club Locker only publishes start times, so finish times are estimated at 45 minutes (shorter if the player's next match starts sooner). Upcoming matches whose opponent is still being decided show "To be decided". When Club Locker records a result, an open match is marked completed; a result staff typed in is never overwritten. Doubles are not imported yet. The old `CLUB_LOCKER_SCHEDULE_URL` setting still works when no tournament IDs are set.
+Club Locker only publishes start times, so finish times are estimated at 45 minutes (shorter if the player's next match starts sooner). Upcoming matches whose opponent is still being decided show "To be decided". When Club Locker records a result, an open match is marked completed; a result staff typed in is never overwritten. Doubles are not imported yet. Leave `CLUB_LOCKER_SCHEDULE_URL` unset: if it is set, that custom feed is used instead of reading Club Locker directly.
 
 ## Stack
 

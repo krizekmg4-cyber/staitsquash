@@ -359,11 +359,19 @@ export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
 // routes/tracker.ts) is dropped once a real Club Locker schedule arrives.
 const SAMPLE_PLAYER_ID = "cameron-stait";
 
-function withoutSampleDraw(state: ReadonlyTrackerState): ReadonlyTrackerState {
+function withoutSampleDraw(
+  state: ReadonlyTrackerState,
+  feed: ReadonlyClubLockerFeed,
+): ReadonlyTrackerState {
   const matches = state.matches.filter(
     (match) => !(match.externalId === null && match.playerId === SAMPLE_PLAYER_ID),
   );
-  const players = matches.some((match) => match.playerId === SAMPLE_PLAYER_ID)
+  // Keep the player (and their private link) if anything still refers to them.
+  const stillReferenced =
+    matches.some((match) => match.playerId === SAMPLE_PLAYER_ID) ||
+    feed.matches.some((match) => match.playerId === SAMPLE_PLAYER_ID) ||
+    (feed.players ?? []).some((player) => player.id === SAMPLE_PLAYER_ID);
+  const players = stillReferenced
     ? state.players
     : state.players.filter((player) => player.id !== SAMPLE_PLAYER_ID);
   return { ...state, matches, players };
@@ -373,7 +381,7 @@ export function mergeClubLockerFeed(
   loadedState: ReadonlyTrackerState,
   feed: ReadonlyClubLockerFeed,
 ): TrackerState {
-  const state = withoutSampleDraw(loadedState);
+  const state = withoutSampleDraw(loadedState, feed);
   const currentByExternalId = new Map(
     state.matches
       .filter(

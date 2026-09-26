@@ -271,12 +271,13 @@ async function mutateStateInTransaction<T>(
 }
 
 async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
+  // A custom feed URL, when set, takes precedence over reading tournament
+  // draws directly; the refresh tests rely on this to stub the feed.
+  const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
   const drawsConfig = drawsConfigFromEnv();
-  if (drawsConfig) {
+  if (!url && drawsConfig) {
     return parseClubLockerFeed(await fetchClubLockerDraws(drawsConfig));
   }
-
-  const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
   if (!url) {
     throw new Error(
       "Club Locker is not configured. Set CLUB_LOCKER_TOURNAMENT_IDS and CLUB_LOCKER_PLAYER_IDS",
