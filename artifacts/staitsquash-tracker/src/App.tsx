@@ -113,6 +113,22 @@ function FailureState({ retry }: { retry: () => void }) {
   );
 }
 
+function NotApprovedState() {
+  const { signOut } = useClerk();
+  return (
+    <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-secondary text-primary">
+        <CircleUserRound size={28} />
+      </div>
+      <h2 data-testid="heading-not-approved" className="mt-5 font-serif text-3xl font-bold tracking-tight">You're signed in, but not approved yet.</h2>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask the StaitSquash match desk to approve your account for staff access, then reload this page.</p>
+      <button type="button" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold transition-colors hover:bg-muted">
+        Sign out
+      </button>
+    </div>
+  );
+}
+
 function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void }) {
   const { signOut } = useClerk();
   return (
@@ -151,7 +167,7 @@ function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerSt
 
 function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players: Player[]; coaches: Coach[] }) {
   const upcoming = matches.filter((match) => match.status === 'upcoming').length;
-  const completed = matches.filter((match) => match.status === 'completed').length;
+  const reports = matches.filter((match) => match.report).length;
   return (
     <div className="grid grid-cols-3 gap-2 sm:gap-3">
       <div data-testid="stat-players" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
@@ -167,7 +183,7 @@ function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players
       <div data-testid="stat-coaches" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Coaches</p>
         <p className="mt-2 font-serif text-2xl font-bold">{coaches.length}</p>
-        <p className="mt-1 text-[11px] text-muted-foreground">{completed} reports filed</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{reports} {reports === 1 ? 'report' : 'reports'} filed</p>
       </div>
     </div>
   );
@@ -179,7 +195,7 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
     const output: Array<{ first: Match; second: Match }> = [];
     sorted.forEach((first, index) => sorted.slice(index + 1).forEach((second) => {
       const overlaps = new Date(second.startsAt) < new Date(first.endsAt) && new Date(second.endsAt) > new Date(first.startsAt);
-      if (overlaps && first.coachId === second.coachId) output.push({ first, second });
+      if (overlaps && first.coachId !== 'unassigned' && first.coachId === second.coachId) output.push({ first, second });
     }));
     return output;
   }, [matches]);
@@ -468,8 +484,10 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
       setUploading(false);
     }
   };
-  const slug = (name: string, fallback: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || fallback;
-  const setCoach = (index: number, name: string) => setCoaches(coaches.map((item, i) => i === index ? { ...item, name, id: slug(name, `coach-${index + 1}`) } : item));
+  // Renaming keeps a coach's ID so their match assignments survive the save.
+  const setCoach = (index: number, name: string) => setCoaches(coaches.map((item, i) => i === index ? { ...item, name } : item));
+  const addCoach = () => setCoaches([...coaches, { id: `coach-${Date.now().toString(36)}`, name: '' }]);
+  const removeCoach = (index: number) => setCoaches(coaches.filter((_, i) => i !== index));
   const removeLogo = () => {
     const path = temporaryLogoPath.current;
     temporaryLogoPath.current = null;
@@ -496,7 +514,7 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
         <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button data-testid="button-remove-logo" type="button" onClick={removeLogo} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
-        <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <input className="field" key={`${person.id}-${index}`} value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" />)}</div><p className="mt-2 text-[11px] text-muted-foreground">These five names appear when assigning a coach to a match.</p></section>
+        <section><p className="field-label mb-2">Coach options</p><div className="space-y-2">{coaches.map((person, index) => <div key={person.id} className="flex items-center gap-2"><input data-testid={`input-coach-${index + 1}`} className="field" value={person.name} onChange={(event) => setCoach(index, event.target.value)} placeholder="Coach name" /><button data-testid={`button-remove-coach-${index + 1}`} type="button" disabled={coaches.length === 1} onClick={() => removeCoach(index)} aria-label={`Remove ${person.name || 'coach'}`} className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"><X size={16} /></button></div>)}</div><button data-testid="button-add-coach" type="button" onClick={addCoach} className="mt-2 rounded-xl border border-border px-3 py-2 text-xs font-bold hover:bg-muted">Add coach</button><p className="mt-2 text-[11px] text-muted-foreground">These names appear when assigning a coach to a match. Removing a coach moves their matches to Unassigned.</p></section>
         <section>
           <p className="field-label mb-2">Private player links</p>
           <div className="space-y-2">
@@ -515,7 +533,13 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
 
 function TrackerPage() {
   const queryClient = useQueryClient();
-  const tracker = useGetTracker({ query: { queryKey: getGetTrackerQueryKey(), staleTime: 30000 } });
+  const tracker = useGetTracker({
+    query: {
+      queryKey: getGetTrackerQueryKey(),
+      staleTime: 30000,
+      retry: (failureCount, error) => error.status !== 401 && error.status !== 403 && failureCount < 3,
+    },
+  });
   const trackerHealth = useGetTrackerHealth({
     query: {
       queryKey: getGetTrackerHealthQueryKey(),
@@ -597,10 +621,16 @@ function TrackerPage() {
   };
 
   if (tracker.isLoading) return <TrackerSkeleton />;
+  if (tracker.isError && tracker.error?.status === 403) return <NotApprovedState />;
   if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
   if (!state || !state.matches.length) return <EmptyState onRefresh={doRefresh} />;
 
-  const filteredMatches = view === 'players' ? matches : matches.filter((match) => match.coachId);
+  const coachName = (coachId: string) => state.coaches.find((coach) => coach.id === coachId)?.name ?? '';
+  const filteredMatches = view === 'players'
+    ? matches
+    : matches
+      .filter((match) => match.coachId !== 'unassigned')
+      .sort((a, b) => coachName(a.coachId).localeCompare(coachName(b.coachId)) || +new Date(a.startsAt) - +new Date(b.startsAt));
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
       <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
@@ -632,7 +662,7 @@ function TrackerPage() {
         )}
         <div className="rise-in flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">Saturday · match desk</p>
+            <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(new Date())} · match desk</p>
             <h1 data-testid="heading-tracker" className="mt-2 font-serif text-4xl font-bold tracking-[-.04em] sm:text-5xl">Stay on court.</h1>
             <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">The next match, without the rummage. Follow each player from warm-up to report.</p>
           </div>

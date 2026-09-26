@@ -266,6 +266,36 @@ test("a result recorded in Club Locker closes out an open match", () => {
   assert.equal(closed.matches[0]?.coachId, "alex");
 });
 
+test("the first Club Locker import replaces the placeholder sample draw", () => {
+  const sampleMatch = {
+    id: "match-1",
+    externalId: null,
+    playerId: "cameron-stait",
+    opponent: "Ethan Cole",
+    startsAt: "2026-09-16T14:30:00-04:00",
+    endsAt: "2026-09-16T15:15:00-04:00",
+    venue: "Arlen Specter US Squash Center",
+    court: "Court 6",
+    coachId: "alex",
+    status: "upcoming" as const,
+    result: null,
+    report: null,
+  };
+  const sample = {
+    ...baseState([sampleMatch]),
+    players: [{ id: "cameron-stait", name: "Cameron Stait" }],
+    source: "sample" as const,
+  };
+
+  const merged = mergeClubLockerFeed(
+    sample,
+    parseClubLockerFeed(drawsToFeed([tournament([draw()])], roster, "America/New_York")),
+  );
+
+  assert.deepEqual(merged.players.map((player) => player.id), ["111"]);
+  assert.deepEqual(merged.matches.map((match) => match.externalId), ["19515:5001:111"]);
+});
+
 test("a result staff already entered is never overwritten by Club Locker", () => {
   const played = parseClubLockerFeed(
     drawsToFeed(
