@@ -405,6 +405,10 @@ export function mergeClubLockerFeed(
         match.externalId === null
           ? undefined
           : incomingByExternalId.get(match.externalId);
+      // A result recorded in Club Locker closes out a match staff have not
+      // closed yet; a result staff entered themselves is never overwritten.
+      const adoptResult =
+        incoming?.status === "completed" && match.status === "upcoming";
       return incoming
         ? {
             ...cloneTrackerMatch(match),
@@ -414,6 +418,9 @@ export function mergeClubLockerFeed(
             endsAt: incoming.endsAt,
             venue: incoming.venue,
             court: incoming.court,
+            ...(adoptResult
+              ? { status: "completed" as const, result: incoming.result ?? null }
+              : {}),
           }
         : cloneTrackerMatch(match);
     });
