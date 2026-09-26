@@ -397,3 +397,87 @@ describe('read-only player links', () => {
 });
 
 let signedIn = true;
+
+describe('match desk fixes', () => {
+  let persistedTracker: typeof tracker;
+  let savedCoaches: Array<{ id: string; name: string }> | null;
+  let trackerStatus: number;
+
+  beforeEach(() => {
+    signedIn = true;
+    trackerStatus = 200;
+    savedCoaches = null;
+    persistedTracker = structuredClone(tracker);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
+      if (url.endsWith('/api/tracker') && (!init?.method || init.method === 'GET')) {
+        return trackerStatus === 200
+          ? Response.json(persistedTracker)
+          : Response.json({ error: 'This account is not approved for staff access' }, { status: trackerStatus });
+      }
+      if (url.endsWith('/api/tracker/settings') && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { coaches: Array<{ id: string; name: string }> };
+        savedCoaches = body.coaches;
+        persistedTracker = { ...persistedTracker, ...body };
+        return Response.json(persistedTracker);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('tells a signed-in but unapproved coach to ask for approval', async () => {
+    trackerStatus = 403;
+    render(<App />);
+    expect(await screen.findByTestId('heading-not-approved')).toHaveTextContent('not approved yet');
+    expect(screen.queryByText('The locker room is offline.')).not.toBeInTheDocument();
+  });
+
+  it('keeps coach IDs when renaming and supports adding and removing coaches', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.change(screen.getByTestId('input-coach-1'), { target: { value: 'Narelle' } });
+    fireEvent.click(screen.getByTestId('button-remove-coach-2'));
+    fireEvent.click(screen.getByTestId('button-add-coach'));
+    fireEvent.change(screen.getByTestId('input-coach-2'), { target: { value: 'Jamie' } });
+    fireEvent.click(screen.getByTestId('button-save-settings'));
+    await screen.findByText('Settings saved');
+
+    expect(savedCoaches?.[0]).toEqual({ id: 'coach-1', name: 'Narelle' });
+    expect(savedCoaches).toHaveLength(2);
+    expect(savedCoaches?.[1]?.name).toBe('Jamie');
+    expect(savedCoaches?.[1]?.id).not.toBe('coach-2');
+  });
+
+  it('does not report unassigned matches as a coach overlap and counts filed reports', async () => {
+    const overlapping = {
+      ...tracker.matches[0],
+      coachId: 'unassigned',
+      report: null,
+    };
+    persistedTracker = {
+      ...persistedTracker,
+      coaches: [...tracker.coaches, { id: 'unassigned', name: 'Unassigned' }],
+      matches: [
+        { ...overlapping, id: 'match-a' },
+        { ...overlapping, id: 'match-b', playerId: 'player-2' },
+        {
+          ...overlapping,
+          id: 'match-c',
+          status: 'completed',
+          result: 'Won 3-0',
+          startsAt: '2026-09-18T09:00:00.000Z',
+          endsAt: '2026-09-18T10:00:00.000Z',
+        },
+      ],
+    } as typeof tracker;
+    render(<App />);
+    await screen.findByTestId('card-match-match-a');
+    expect(screen.queryByTestId('notice-conflict')).not.toBeInTheDocument();
+    expect(screen.getByTestId('stat-coaches')).toHaveTextContent('0 reports filed');
+  });
+});

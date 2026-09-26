@@ -355,10 +355,25 @@ export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
   return Object.freeze({ matches, players });
 }
 
+// The placeholder draw a new tracker starts with (INITIAL_STATE in
+// routes/tracker.ts) is dropped once a real Club Locker schedule arrives.
+const SAMPLE_PLAYER_ID = "cameron-stait";
+
+function withoutSampleDraw(state: ReadonlyTrackerState): ReadonlyTrackerState {
+  const matches = state.matches.filter(
+    (match) => !(match.externalId === null && match.playerId === SAMPLE_PLAYER_ID),
+  );
+  const players = matches.some((match) => match.playerId === SAMPLE_PLAYER_ID)
+    ? state.players
+    : state.players.filter((player) => player.id !== SAMPLE_PLAYER_ID);
+  return { ...state, matches, players };
+}
+
 export function mergeClubLockerFeed(
-  state: ReadonlyTrackerState,
+  loadedState: ReadonlyTrackerState,
   feed: ReadonlyClubLockerFeed,
 ): TrackerState {
+  const state = withoutSampleDraw(loadedState);
   const currentByExternalId = new Map(
     state.matches
       .filter(
