@@ -72,6 +72,16 @@ timeoutMs = 20000
 [nix]
 channel = "stable-25_05"
 
+[objectStorage]
+defaultBucketID = "replit-objstore-bac4d0fc-05b8-4757-af5e-c4260132e76b"
+
+[userenv]
+
+[userenv.shared]
+CLUB_LOCKER_TOURNAMENT_IDS = "19515"
+CLUB_LOCKER_PLAYER_IDS = "527745,551079,450879,465422,559727,542444"
+STAFF_CLERK_USER_IDS = "user_3JsfBWuciuyLdvzsRmwzdVk5GLr,user_3JVm5QwwlINIssV6Uv4MxwSOgZa"
+
 [[ports]]
 localPort = 8080
 externalPort = 8080
@@ -82,18 +92,8 @@ externalPort = 8081
 
 [[ports]]
 localPort = 20442
-externalPort = 80
+externalPort = 3000
 
 [[ports]]
 localPort = 23839
-externalPort = 3000
-
-[objectStorage]
-defaultBucketID = "replit-objstore-bac4d0fc-05b8-4757-af5e-c4260132e76b"
-
-[userenv]
-
-[userenv.shared]
-CLUB_LOCKER_TOURNAMENT_IDS = "19515"
-CLUB_LOCKER_PLAYER_IDS = "527745,551079,450879,465422,559727,542444"
-STAFF_CLERK_USER_IDS = "user_3JsfBWuciuyLdvzsRmwzdVk5GLr"
+externalPort = 80
