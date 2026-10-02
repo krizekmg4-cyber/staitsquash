@@ -433,6 +433,10 @@ components:
         venue: { type: string }
         court: { type: string }
         coachId: { type: string }
+        coachMode:
+          type: string
+          enum: [in-person, virtual]
+          description: Whether the coach is at the event or watching remotely. Absent means in-person.
         status:
           type: string
           enum: [upcoming, completed]
@@ -450,6 +454,9 @@ components:
         venue: { type: string }
         court: { type: string }
         coachId: { type: string }
+        coachMode:
+          type: string
+          enum: [in-person, virtual]
         status:
           type: string
           enum: [upcoming, completed]

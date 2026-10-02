@@ -40,6 +40,19 @@ import { drawsConfigFromEnv, fetchClubLockerDraws } from "../lib/club-locker-dra
 import { ObjectStorageService } from "../lib/object-storage.js";
 import { requireStaff } from "../middlewares/requireStaff.js";
 
+const SYSTEM_COACHES = [
+  { id: "unassigned", name: "Unassigned" },
+  { id: "not-coaching", name: "Not coaching" },
+] as const;
+
+function withSystemCoaches<T extends { id: string; name: string }>(coaches: T[]): Array<T | { id: string; name: string }> {
+  const merged: Array<T | { id: string; name: string }> = [...coaches];
+  for (const systemCoach of SYSTEM_COACHES) {
+    if (!merged.some((coach) => coach.id === systemCoach.id)) merged.push({ ...systemCoach });
+  }
+  return merged;
+}
+
 const INITIAL_STATE: TrackerState = {
   players: [{ id: "cameron-stait", name: "Cameron Stait", shareToken: randomBytes(32).toString("base64url") }],
   coaches: [
@@ -50,6 +63,7 @@ const INITIAL_STATE: TrackerState = {
     { id: "nico", name: "Nico" },
     { id: "nathan", name: "Nathan" },
     { id: "unassigned", name: "Unassigned" },
+    { id: "not-coaching", name: "Not coaching" },
   ],
   branding: { name: "StaitSquash", logoPath: null },
   matches: [
@@ -150,7 +164,7 @@ function normalizeState(state: PersistedTrackerSnapshot): ReadonlyTrackerState {
       ...player,
       shareToken: player.shareToken ?? randomBytes(32).toString("base64url"),
     })),
-    coaches: state.coaches.map((coach) => ({ ...coach })),
+    coaches: withSystemCoaches(state.coaches.map((coach) => ({ ...coach }))),
     branding: storedBranding
       ? {
           name: storedBranding.name,
@@ -737,16 +751,14 @@ export function createTrackerRouter(
     const replacedLogoPath = await coordinateMutation(async (loadLockedState, saveLockedState) => {
       const state = cloneTrackerState(await loadLockedState());
       const previousLogoPath = state.branding?.logoPath ?? null;
-      const coaches = [...body.data.coaches];
-      if (!coaches.some((coach) => coach.id === "unassigned")) {
-        coaches.push({ id: "unassigned", name: "Unassigned" });
-      }
+      const coaches = withSystemCoaches([...body.data.coaches]);
       const coachIds = new Set(coaches.map((coach) => coach.id));
       state.coaches = coaches;
-      state.matches = state.matches.map((match) => ({
-        ...match,
-        coachId: coachIds.has(match.coachId) ? match.coachId : "unassigned",
-      }));
+      state.matches = state.matches.map((match) => {
+        if (coachIds.has(match.coachId)) return match;
+        const { coachMode: _dropped, ...rest } = match;
+        return { ...rest, coachId: "unassigned" };
+      });
       state.branding = body.data.branding;
       state.lastUpdatedAt = new Date().toISOString();
       await saveLockedState(state);
@@ -824,6 +836,11 @@ export function createTrackerRouter(
       }
 
       Object.assign(match, body.data);
+      // Picking a different coach resets the match to in-person unless the
+      // request says otherwise.
+      if (body.data.coachId !== undefined && body.data.coachMode === undefined) {
+        delete match.coachMode;
+      }
       state.lastUpdatedAt = new Date().toISOString();
       await saveLockedState(state);
       res.json(UpdateMatchResponse.parse(match));

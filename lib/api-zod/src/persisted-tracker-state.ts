@@ -50,6 +50,7 @@ const TrackerMatch = z.object({
   venue: z.string().min(1),
   court: z.string().min(1),
   coachId: z.string().min(1),
+  coachMode: z.enum(["in-person", "virtual"]).optional(),
   status: z.enum(["upcoming", "completed"]),
   result: z.string().nullable(),
   report: CoachReport.nullable(),

@@ -103,6 +103,17 @@ export interface CoachReportInput {
   audioPath?: string | null;
 }
 
+/**
+ * Whether the coach is at the event or watching remotely. Absent means in-person.
+ */
+export type MatchCoachMode = typeof MatchCoachMode[keyof typeof MatchCoachMode];
+
+
+export const MatchCoachMode = {
+  'in-person': 'in-person',
+  virtual: 'virtual',
+} as const;
+
 export type MatchStatus = typeof MatchStatus[keyof typeof MatchStatus];
 
 
@@ -122,11 +133,21 @@ export interface Match {
   venue: string;
   court: string;
   coachId: string;
+  /** Whether the coach is at the event or watching remotely. Absent means in-person. */
+  coachMode?: MatchCoachMode;
   status: MatchStatus;
   /** @nullable */
   result?: string | null;
   report?: CoachReport | null;
 }
+
+export type MatchUpdateCoachMode = typeof MatchUpdateCoachMode[keyof typeof MatchUpdateCoachMode];
+
+
+export const MatchUpdateCoachMode = {
+  'in-person': 'in-person',
+  virtual: 'virtual',
+} as const;
 
 export type MatchUpdateStatus = typeof MatchUpdateStatus[keyof typeof MatchUpdateStatus];
 
@@ -143,6 +164,7 @@ export interface MatchUpdate {
   venue?: string;
   court?: string;
   coachId?: string;
+  coachMode?: MatchUpdateCoachMode;
   status?: MatchUpdateStatus;
   /** @nullable */
   result?: string | null;

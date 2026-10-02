@@ -47,6 +47,15 @@ import { shadcn } from '@clerk/themes';
 
 type ViewMode = 'next' | 'players' | 'coaches';
 
+const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
+const isSystemCoach = (coachId: string) => SYSTEM_COACH_IDS.includes(coachId);
+
+const coachLabel = (coach: Coach | undefined, match: Pick<Match, 'coachMode'>) => {
+  if (!coach || coach.id === 'unassigned') return 'To be assigned';
+  if (coach.id === 'not-coaching') return 'No coach at this match';
+  return match.coachMode === 'virtual' ? `${coach.name} (virtual)` : coach.name;
+};
+
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
 const formatDay = (value: string) =>
@@ -182,7 +191,7 @@ function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players
       </div>
       <div data-testid="stat-coaches" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Coaches</p>
-        <p className="mt-2 font-serif text-2xl font-bold">{coaches.length}</p>
+        <p className="mt-2 font-serif text-2xl font-bold">{coaches.filter((coach) => !isSystemCoach(coach.id)).length}</p>
         <p className="mt-1 text-[11px] text-muted-foreground">{reports} {reports === 1 ? 'report' : 'reports'} filed</p>
       </div>
     </div>
@@ -195,7 +204,7 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
     const output: Array<{ first: Match; second: Match }> = [];
     sorted.forEach((first, index) => sorted.slice(index + 1).forEach((second) => {
       const overlaps = new Date(second.startsAt) < new Date(first.endsAt) && new Date(second.endsAt) > new Date(first.startsAt);
-      if (overlaps && first.coachId !== 'unassigned' && first.coachId === second.coachId) output.push({ first, second });
+      if (overlaps && !isSystemCoach(first.coachId) && first.coachId === second.coachId) output.push({ first, second });
     }));
     return output;
   }, [matches]);
@@ -214,38 +223,75 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
   );
 }
 
-function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, coachId: string) => void; savingMatchId: string | null }) {
+type CoachPatch = { coachId?: string; coachMode?: 'in-person' | 'virtual' };
+
+function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, patch: CoachPatch) => void; savingMatchId: string | null }) {
   const rows = players.map((player) => ({
     player,
     next: matches.filter((match) => match.playerId === player.id && match.status !== 'completed').sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0],
   }));
   const playing = rows.filter((row) => row.next).sort((a, b) => +new Date(a.next!.startsAt) - +new Date(b.next!.startsAt));
   const waiting = rows.filter((row) => !row.next);
+  // One group per venue, earliest venue first, so each event's kids sit together.
+  const groups: Array<{ venue: string; rows: typeof playing }> = [];
+  for (const row of playing) {
+    const group = groups.find((item) => item.venue === row.next!.venue);
+    if (group) group.rows.push(row); else groups.push({ venue: row.next!.venue, rows: [row] });
+  }
+  const realCoaches = coaches.filter((coach) => !isSystemCoach(coach.id));
   return (
     <div data-testid="board-next-matches" className="overflow-hidden rounded-2xl border border-card-border bg-card shadow-sm">
-      <div className="hidden grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1fr] gap-3 border-b border-border bg-muted/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:grid">
+      <div className="hidden grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1.3fr] gap-3 border-b border-border bg-muted/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:grid">
         <span>Player</span><span>Next match</span><span>Court</span><span>Venue</span><span>Opponent</span><span>Coach</span>
       </div>
-      {playing.map(({ player, next }) => (
-        <div key={player.id} data-testid={`row-next-${player.id}`} className="grid gap-x-3 gap-y-1 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1fr] md:items-center">
-          <p className="text-sm font-bold">{player.name}</p>
-          <p className="text-sm"><span className="font-mono font-bold">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
-          <p className="text-sm font-semibold">{next!.court}</p>
-          <p className="truncate text-xs text-muted-foreground">{next!.venue}</p>
-          <p className="truncate text-sm">vs {next!.opponent}</p>
-          <span className="relative block">
-            <select
-              data-testid={`select-assign-${next!.id}`}
-              aria-label={`Coach for ${player.name}`}
-              value={next!.coachId}
-              disabled={savingMatchId === next!.id}
-              onChange={(event) => onAssign(next!, event.target.value)}
-              className={cx('field appearance-none py-2 pr-8 text-sm', next!.coachId === 'unassigned' && 'border-accent text-accent')}
-            >
-              {coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.id === 'unassigned' ? 'Unassigned' : coach.name}</option>)}
-            </select>
-            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted-foreground" />
-          </span>
+      {groups.map((group) => (
+        <div key={group.venue} data-testid={`group-${group.venue}`}>
+          <div className="border-b border-border bg-secondary/40 px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[.15em] text-primary">
+            {group.venue} · {group.rows.length} {group.rows.length === 1 ? 'player' : 'players'}
+          </div>
+          {group.rows.map(({ player, next }) => {
+            const unassigned = next!.coachId === 'unassigned';
+            const notCoaching = next!.coachId === 'not-coaching';
+            const virtual = next!.coachMode === 'virtual';
+            return (
+              <div key={player.id} data-testid={`row-next-${player.id}`} className="grid gap-x-3 gap-y-1 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1.3fr] md:items-center">
+                <p className="text-sm font-bold">{player.name}</p>
+                <p className="text-sm"><span className="font-mono font-bold">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
+                <p className="text-sm font-semibold">{next!.court}</p>
+                <p className="truncate text-xs text-muted-foreground">{next!.venue}</p>
+                <p className="truncate text-sm">vs {next!.opponent}</p>
+                <div className="flex items-center gap-2">
+                  <span className="relative block min-w-0 flex-1">
+                    <select
+                      data-testid={`select-assign-${next!.id}`}
+                      aria-label={`Coach for ${player.name}`}
+                      value={next!.coachId}
+                      disabled={savingMatchId === next!.id}
+                      onChange={(event) => onAssign(next!, { coachId: event.target.value })}
+                      className={cx('field appearance-none py-2 pr-8 text-sm', unassigned && 'border-accent text-accent', notCoaching && 'text-muted-foreground')}
+                    >
+                      {realCoaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}
+                      <option value="not-coaching">Not coaching</option>
+                      <option value="unassigned">Unassigned</option>
+                    </select>
+                    <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted-foreground" />
+                  </span>
+                  {!unassigned && !notCoaching && (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <input
+                        data-testid={`toggle-virtual-${next!.id}`}
+                        type="checkbox"
+                        checked={virtual}
+                        disabled={savingMatchId === next!.id}
+                        onChange={(event) => onAssign(next!, { coachMode: event.target.checked ? 'virtual' : 'in-person' })}
+                      />
+                      Virtual
+                    </label>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ))}
       {waiting.length > 0 && (
@@ -294,7 +340,7 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { mat
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">{coach ? getInitials(coach.name) : '?'}</span>
-            <span>{coach?.name ?? 'Coach not assigned'}</span>
+            <span>{coach ? coachLabel(coach, match) : 'Coach not assigned'}</span>
           </div>
           <div className="flex items-center gap-2">
             {isComplete ? (
@@ -479,7 +525,7 @@ function Modal({ title, eyebrow, onClose, closeDisabled = false, children }: { t
 }
 
 function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPlayerId, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => Promise<void>; onRotateShareLink: (player: Player) => void; rotatingPlayerId: string | null; saving: boolean }) {
-  const [coaches, setCoaches] = useState(state.coaches.filter((coach) => coach.id !== 'unassigned'));
+  const [coaches, setCoaches] = useState(state.coaches.filter((coach) => !isSystemCoach(coach.id)));
   const [brandName, setBrandName] = useState(state.branding.name);
   const [logoPath, setLogoPath] = useState(state.branding.logoPath);
   const [logoError, setLogoError] = useState('');
@@ -645,9 +691,9 @@ function TrackerPage() {
     updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
   };
   const [assigningMatchId, setAssigningMatchId] = useState<string | null>(null);
-  const assignCoach = (match: Match, coachId: string) => {
+  const assignCoach = (match: Match, patch: CoachPatch) => {
     setAssigningMatchId(match.id);
-    updateMatch.mutate({ matchId: match.id, data: { coachId } }, {
+    updateMatch.mutate({ matchId: match.id, data: patch }, {
       onSuccess: (updated) => { patchMatch(updated); showSuccess('Coach assigned'); },
       onError: () => setToast('Coach could not be assigned'),
       onSettled: () => setAssigningMatchId(null),
@@ -682,7 +728,7 @@ function TrackerPage() {
   const filteredMatches = view !== 'coaches'
     ? matches
     : matches
-      .filter((match) => match.coachId !== 'unassigned')
+      .filter((match) => !isSystemCoach(match.coachId))
       .sort((a, b) => coachName(a.coachId).localeCompare(coachName(b.coachId)) || +new Date(a.startsAt) - +new Date(b.startsAt));
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
@@ -848,11 +894,11 @@ function PlayerView() {
               </div>
               <div className="mt-5 flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary font-mono text-xs font-bold text-secondary-foreground">
-                  {getInitials(state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? '?')}
+                  {isSystemCoach(nextMatch.coachId) ? '?' : getInitials(state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? '?')}
                 </span>
                 <div>
                   <p className="font-mono text-[9px] uppercase tracking-[.14em] text-primary-foreground/50">Your coach</p>
-                  <p className="text-sm font-bold">{state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? 'To be assigned'}</p>
+                  <p className="text-sm font-bold">{coachLabel(state.coaches.find((coach) => coach.id === nextMatch.coachId), nextMatch)}</p>
                 </div>
               </div>
             </div>
@@ -878,7 +924,7 @@ function PlayerView() {
                     <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {formatTime(match.startsAt)}</p><p className="mt-1 font-serif text-xl font-bold">{match.opponent}</p></div>
                     <span className="rounded-lg bg-secondary px-2.5 py-1.5 text-xs font-bold text-secondary-foreground">{match.court}</span>
                   </div>
-                  <p className="mt-3 text-xs text-muted-foreground">{match.venue} · Coach {state.coaches.find((coach) => coach.id === match.coachId)?.name ?? 'TBA'}</p>
+                  <p className="mt-3 text-xs text-muted-foreground">{match.venue} · {isSystemCoach(match.coachId) ? coachLabel(state.coaches.find((coach) => coach.id === match.coachId), match) : `Coach ${coachLabel(state.coaches.find((coach) => coach.id === match.coachId), match)}`}</p>
                 </article>
               ))}
             </div>
@@ -897,7 +943,7 @@ function PlayerView() {
                 return (
                   <article data-testid={`player-history-${match.id}`} key={match.id} className="rounded-2xl border border-card-border bg-card p-4 shadow-sm sm:p-5">
                     <div className="flex items-start justify-between gap-4">
-                      <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {match.court}</p><h3 className="mt-1 font-serif text-xl font-bold">{match.opponent}</h3><p className="mt-1 text-xs text-muted-foreground">Coach {coach?.name ?? 'Unassigned'}</p></div>
+                      <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {match.court}</p><h3 className="mt-1 font-serif text-xl font-bold">{match.opponent}</h3><p className="mt-1 text-xs text-muted-foreground">{isSystemCoach(match.coachId) ? coachLabel(coach, match) : `Coach ${coachLabel(coach, match)}`}</p></div>
                       <span className="rounded-lg bg-muted px-3 py-2 font-mono text-xs font-bold">{match.result ?? 'Completed'}</span>
                     </div>
                     {match.report && (

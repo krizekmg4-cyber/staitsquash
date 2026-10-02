@@ -403,11 +403,13 @@ describe('match desk fixes', () => {
   let persistedTracker: typeof tracker;
   let savedCoaches: Array<{ id: string; name: string }> | null;
   let trackerStatus: number;
+  let patches: Array<Record<string, unknown>>;
 
   beforeEach(() => {
     signedIn = true;
     trackerStatus = 200;
     savedCoaches = null;
+    patches = [];
     persistedTracker = structuredClone(tracker);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -422,6 +424,17 @@ describe('match desk fixes', () => {
         savedCoaches = body.coaches;
         persistedTracker = { ...persistedTracker, ...body };
         return Response.json(persistedTracker);
+      }
+      const patchMatch = /\/api\/matches\/([^/]+)$/.exec(url);
+      if (patchMatch && init?.method === 'PATCH') {
+        const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+        patches.push(patch);
+        const id = decodeURIComponent(patchMatch[1]);
+        persistedTracker = {
+          ...persistedTracker,
+          matches: persistedTracker.matches.map((match) => match.id === id ? { ...match, ...patch } : match),
+        } as typeof tracker;
+        return Response.json(persistedTracker.matches.find((match) => match.id === id));
       }
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -489,5 +502,42 @@ describe('match desk fixes', () => {
     expect(row).toHaveTextContent('Alex Morgan');
     expect(row).toHaveTextContent('vs Original Opponent');
     expect(screen.getByTestId('select-assign-match-1')).toHaveValue('coach-1');
+  });
+  const withSystemCoaches = () => [
+    ...tracker.coaches,
+    { id: 'unassigned', name: 'Unassigned' },
+    { id: 'not-coaching', name: 'Not coaching' },
+  ];
+
+  it('groups the next-up board by venue and keeps system coaches out of the coach count', async () => {
+    const base = tracker.matches[0];
+    persistedTracker = {
+      ...persistedTracker,
+      players: [...tracker.players, { id: 'player-2', name: 'Sam Two', shareToken: 'b'.repeat(43) }],
+      coaches: withSystemCoaches(),
+      matches: [
+        { ...base, id: 'match-a', venue: 'Venue A' },
+        { ...base, id: 'match-b', playerId: 'player-2', venue: 'Venue B' },
+      ],
+    } as typeof tracker;
+    render(<App />);
+    expect(await screen.findByTestId('group-Venue A')).toHaveTextContent('Venue A · 1 player');
+    expect(screen.getByTestId('group-Venue B')).toHaveTextContent('Venue B · 1 player');
+    expect(screen.getByTestId('stat-coaches')).toHaveTextContent(/^Coaches2/);
+  });
+
+  it('offers Not coaching and a Virtual toggle, and saves both from the board', async () => {
+    persistedTracker = { ...persistedTracker, coaches: withSystemCoaches() } as typeof tracker;
+    render(<App />);
+    const select = await screen.findByTestId('select-assign-match-1') as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(['coach-1', 'coach-2', 'not-coaching', 'unassigned']);
+
+    fireEvent.click(screen.getByTestId('toggle-virtual-match-1'));
+    await waitFor(() => expect(patches).toEqual([{ coachMode: 'virtual' }]));
+    await waitFor(() => expect(screen.getByTestId('toggle-virtual-match-1')).toBeChecked());
+
+    fireEvent.change(select, { target: { value: 'not-coaching' } });
+    await waitFor(() => expect(patches[1]).toEqual({ coachId: 'not-coaching' }));
+    await waitFor(() => expect(screen.queryByTestId('toggle-virtual-match-1')).not.toBeInTheDocument());
   });
 });

@@ -10,6 +10,7 @@ type TrackerMatch = {
     venue: string;
     court: string;
     coachId: string;
+    coachMode?: "in-person" | "virtual";
     status: "upcoming" | "completed";
     result: string | null;
     report: {

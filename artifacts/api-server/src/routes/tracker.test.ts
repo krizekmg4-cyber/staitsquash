@@ -2140,3 +2140,85 @@ test("normal successful refresh sends no staff webhook", async () => {
     else process.env["STAFF_ALERT_WEBHOOK_URL"] = originalWebhookUrl;
   }
 });
+test("coach mode: a new coach resets to in-person, Virtual sticks, and removed coaches fall back to Unassigned", async () => {
+  let state = healthyState();
+  state.coaches = [
+    { id: "coach-1", name: "Coach One" },
+    { id: "coach-2", name: "Coach Two" },
+  ];
+  state.matches = [
+    {
+      id: "match-1",
+      externalId: null,
+      playerId: "player-1",
+      opponent: "Opponent",
+      startsAt: "2026-09-16T10:00:00.000Z",
+      endsAt: "2026-09-16T10:45:00.000Z",
+      venue: "Venue",
+      court: "Court 1",
+      coachId: "coach-1",
+      status: "upcoming",
+      result: null,
+      report: null,
+    },
+  ];
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => {
+      state = structuredClone(next);
+    },
+    objectStorage: {
+      saveObject: async () => undefined,
+      getObject: async () => ({}) as never,
+      deleteObject: async () => undefined,
+    },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const base = `http://127.0.0.1:${address.port}`;
+  const send = (method: string, path: string, body: unknown) =>
+    fetch(`${base}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  try {
+    assert.equal((await send("PATCH", "/matches/match-1", { coachMode: "virtual" })).status, 200);
+    assert.equal(state.matches[0]?.coachMode, "virtual");
+    assert.equal(state.matches[0]?.coachId, "coach-1");
+
+    assert.equal((await send("PATCH", "/matches/match-1", { coachId: "coach-2" })).status, 200);
+    assert.equal(state.matches[0]?.coachId, "coach-2");
+    assert.equal(state.matches[0]?.coachMode, undefined);
+
+    await send("PATCH", "/matches/match-1", { coachMode: "virtual" });
+    assert.equal(state.matches[0]?.coachMode, "virtual");
+
+    const saved = await send("PUT", "/tracker/settings", {
+      coaches: [{ id: "coach-1", name: "Coach One" }],
+      branding: { name: "StaitSquash", logoPath: null },
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(
+      state.coaches.map((coach) => coach.id),
+      ["coach-1", "unassigned", "not-coaching"],
+    );
+    assert.equal(state.matches[0]?.coachId, "unassigned");
+    assert.equal(state.matches[0]?.coachMode, undefined);
+
+    assert.equal((await send("PATCH", "/matches/match-1", { coachId: "not-coaching" })).status, 200);
+    assert.equal(state.matches[0]?.coachId, "not-coaching");
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()),
+    );
+  }
+});
