@@ -45,7 +45,7 @@ import { ClerkProvider, SignIn, Show, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 
-type ViewMode = 'players' | 'coaches';
+type ViewMode = 'next' | 'players' | 'coaches';
 
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
@@ -210,6 +210,50 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
         <p className="text-sm font-bold">Coach overlap detected</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'Assigned coach'} is scheduled with {firstPlayer?.name} and {secondPlayer?.name} at overlapping times. Reassign one from its match card.</p>
       </div>
+    </div>
+  );
+}
+
+function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, coachId: string) => void; savingMatchId: string | null }) {
+  const rows = players.map((player) => ({
+    player,
+    next: matches.filter((match) => match.playerId === player.id && match.status !== 'completed').sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0],
+  }));
+  const playing = rows.filter((row) => row.next).sort((a, b) => +new Date(a.next!.startsAt) - +new Date(b.next!.startsAt));
+  const waiting = rows.filter((row) => !row.next);
+  return (
+    <div data-testid="board-next-matches" className="overflow-hidden rounded-2xl border border-card-border bg-card shadow-sm">
+      <div className="hidden grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1fr] gap-3 border-b border-border bg-muted/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:grid">
+        <span>Player</span><span>Next match</span><span>Court</span><span>Venue</span><span>Opponent</span><span>Coach</span>
+      </div>
+      {playing.map(({ player, next }) => (
+        <div key={player.id} data-testid={`row-next-${player.id}`} className="grid gap-x-3 gap-y-1 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1fr] md:items-center">
+          <p className="text-sm font-bold">{player.name}</p>
+          <p className="text-sm"><span className="font-mono font-bold">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
+          <p className="text-sm font-semibold">{next!.court}</p>
+          <p className="truncate text-xs text-muted-foreground">{next!.venue}</p>
+          <p className="truncate text-sm">vs {next!.opponent}</p>
+          <span className="relative block">
+            <select
+              data-testid={`select-assign-${next!.id}`}
+              aria-label={`Coach for ${player.name}`}
+              value={next!.coachId}
+              disabled={savingMatchId === next!.id}
+              onChange={(event) => onAssign(next!, event.target.value)}
+              className={cx('field appearance-none py-2 pr-8 text-sm', next!.coachId === 'unassigned' && 'border-accent text-accent')}
+            >
+              {coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.id === 'unassigned' ? 'Unassigned' : coach.name}</option>)}
+            </select>
+            <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted-foreground" />
+          </span>
+        </div>
+      ))}
+      {waiting.length > 0 && (
+        <div data-testid="row-no-next" className="border-t border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+          No upcoming match: {waiting.map((row) => row.player.name).join(', ')}
+        </div>
+      )}
+      {!playing.length && !waiting.length && <p className="px-4 py-6 text-center text-sm text-muted-foreground">No players yet. Refresh the draw to load them.</p>}
     </div>
   );
 }
@@ -553,7 +597,7 @@ function TrackerPage() {
   const saveSettings = useSaveTrackerSettings();
   const rotateShareToken = useRotatePlayerShareToken();
   const [rotatingPlayerId, setRotatingPlayerId] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>('players');
+  const [view, setView] = useState<ViewMode>('next');
   const [editing, setEditing] = useState<Match | null>(null);
   const [completing, setCompleting] = useState<Match | null>(null);
   const [reporting, setReporting] = useState<Match | null>(null);
@@ -600,6 +644,15 @@ function TrackerPage() {
   const saveMatch = (match: Match, data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => {
     updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
   };
+  const [assigningMatchId, setAssigningMatchId] = useState<string | null>(null);
+  const assignCoach = (match: Match, coachId: string) => {
+    setAssigningMatchId(match.id);
+    updateMatch.mutate({ matchId: match.id, data: { coachId } }, {
+      onSuccess: (updated) => { patchMatch(updated); showSuccess('Coach assigned'); },
+      onError: () => setToast('Coach could not be assigned'),
+      onSettled: () => setAssigningMatchId(null),
+    });
+  };
   const completeMatch = (match: Match, result: string) => {
     updateMatch.mutate({ matchId: match.id, data: { status: 'completed', result } }, { onSuccess: (updated) => { patchMatch(updated); setCompleting(null); showSuccess('Match closed out'); } });
   };
@@ -626,7 +679,7 @@ function TrackerPage() {
   if (!state || !state.matches.length) return <EmptyState onRefresh={doRefresh} />;
 
   const coachName = (coachId: string) => state.coaches.find((coach) => coach.id === coachId)?.name ?? '';
-  const filteredMatches = view === 'players'
+  const filteredMatches = view !== 'coaches'
     ? matches
     : matches
       .filter((match) => match.coachId !== 'unassigned')
@@ -674,13 +727,15 @@ function TrackerPage() {
         <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
+            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
             <button data-testid="tab-players" onClick={() => setView('players')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
             <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{filteredMatches.length} cards</span>
+          <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
         </div>
         <div className="rise-in delay-3 mt-4 space-y-3">
-          {filteredMatches.map((match) => (
+          {view === 'next' && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} />}
+          {view !== 'next' && filteredMatches.map((match) => (
             <MatchCard key={match.id} match={match} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
           ))}
         </div>

@@ -82,6 +82,7 @@ describe('tracker health polling', () => {
   it('updates the queued recovery warning without interrupting unsaved match edits', async () => {
     render(<App />);
 
+    fireEvent.click(await screen.findByTestId('tab-players'));
     const editButton = await screen.findByTestId('button-edit-match-match-1');
     fireEvent.click(editButton);
 
@@ -476,8 +477,17 @@ describe('match desk fixes', () => {
       ],
     } as typeof tracker;
     render(<App />);
+    fireEvent.click(await screen.findByTestId('tab-players'));
     await screen.findByTestId('card-match-match-a');
     expect(screen.queryByTestId('notice-conflict')).not.toBeInTheDocument();
     expect(screen.getByTestId('stat-coaches')).toHaveTextContent('0 reports filed');
+  });
+
+  it('opens on a next-up board with one row per player and an inline coach dropdown', async () => {
+    render(<App />);
+    const row = await screen.findByTestId('row-next-player-1');
+    expect(row).toHaveTextContent('Alex Morgan');
+    expect(row).toHaveTextContent('vs Original Opponent');
+    expect(screen.getByTestId('select-assign-match-1')).toHaveValue('coach-1');
   });
 });

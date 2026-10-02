@@ -48,6 +48,7 @@ const INITIAL_STATE: TrackerState = {
     { id: "rob", name: "Rob" },
     { id: "jamie", name: "Jamie" },
     { id: "nico", name: "Nico" },
+    { id: "nathan", name: "Nathan" },
     { id: "unassigned", name: "Unassigned" },
   ],
   branding: { name: "StaitSquash", logoPath: null },
