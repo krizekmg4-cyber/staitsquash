@@ -62,6 +62,7 @@ export const GetTrackerResponse = zod.object({
   "venue": zod.string(),
   "court": zod.string(),
   "coachId": zod.string(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -150,6 +151,7 @@ export const GetPlayerTrackerResponse = zod.object({
   "venue": zod.string(),
   "court": zod.string(),
   "coachId": zod.string(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -233,6 +235,7 @@ export const SaveTrackerSettingsResponse = zod.object({
   "venue": zod.string(),
   "court": zod.string(),
   "coachId": zod.string(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -328,6 +331,7 @@ export const UpdateMatchBody = zod.object({
   "venue": zod.string().optional(),
   "court": zod.string().optional(),
   "coachId": zod.string().optional(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional(),
   "status": zod.enum(['upcoming', 'completed']).optional(),
   "result": zod.string().nullish()
 })
@@ -348,6 +352,7 @@ export const UpdateMatchResponse = zod.object({
   "venue": zod.string(),
   "court": zod.string(),
   "coachId": zod.string(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -456,6 +461,7 @@ export const RefreshTrackerResponse = zod.object({
   "venue": zod.string(),
   "court": zod.string(),
   "coachId": zod.string(),
+  "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({

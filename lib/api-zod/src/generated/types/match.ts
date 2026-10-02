@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CoachReport } from './coachReport';
+import type { MatchCoachMode } from './matchCoachMode';
 import type { MatchStatus } from './matchStatus';
 
 export interface Match {
@@ -19,6 +20,8 @@ export interface Match {
   venue: string;
   court: string;
   coachId: string;
+  /** Whether the coach is at the event or watching remotely. Absent means in-person. */
+  coachMode?: MatchCoachMode;
   status: MatchStatus;
   /** @nullable */
   result?: string | null;

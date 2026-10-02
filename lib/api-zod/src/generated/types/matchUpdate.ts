@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MatchUpdateCoachMode } from './matchUpdateCoachMode';
 import type { MatchUpdateStatus } from './matchUpdateStatus';
 
 export interface MatchUpdate {
@@ -14,6 +15,7 @@ export interface MatchUpdate {
   venue?: string;
   court?: string;
   coachId?: string;
+  coachMode?: MatchUpdateCoachMode;
   status?: MatchUpdateStatus;
   /** @nullable */
   result?: string | null;
