@@ -193,7 +193,7 @@ function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players
   const upcoming = matches.filter((match) => match.status === 'upcoming').length;
   const reports = matches.filter((match) => match.report).length;
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+    <div className="hidden grid-cols-3 gap-2 sm:grid sm:gap-3">
       <div data-testid="stat-players" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Players</p>
         <p className="mt-2 font-serif text-2xl font-bold">{players.length}</p>
@@ -227,12 +227,13 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
   const coach = coaches.find((item) => item.id === conflicts[0].first.coachId);
   const firstPlayer = players.find((item) => item.id === conflicts[0].first.playerId);
   const secondPlayer = players.find((item) => item.id === conflicts[0].second.playerId);
+  const more = conflicts.length - 1;
   return (
-    <div data-testid="notice-conflict" className="mt-5 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-primary">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent"><AlertCircle size={17} /></div>
+    <div data-testid="notice-conflict" className="mt-3 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-primary sm:mt-5 sm:p-4">
+      <div className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent sm:flex"><AlertCircle size={17} /></div>
       <div className="min-w-0">
-        <p className="text-sm font-bold">Coach overlap detected</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'Assigned coach'} is scheduled with {firstPlayer?.name} and {secondPlayer?.name} at overlapping times. Reassign one from its match card.</p>
+        <p className="text-sm font-bold">Coach overlap</p>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'A coach'} has two kids at the same time: {firstPlayer?.name} and {secondPlayer?.name}{more > 0 ? `, and ${more} more ${more === 1 ? 'clash' : 'clashes'}` : ''}. Change one from its row.</p>
       </div>
     </div>
   );
@@ -810,15 +811,18 @@ function TrackerPage() {
             <Clock3 size={15} className="text-accent" /> Live draw view
           </div>
         </div>
-        <div className="rise-in delay-1 mt-2 sm:mt-7"><SummaryStrip matches={matches} players={state.players} coaches={state.coaches} /></div>
+        <div className="rise-in delay-1 mt-3 sm:mt-7">
+          <p data-testid="phone-summary" className="font-mono text-[11px] font-bold uppercase tracking-[.12em] text-muted-foreground sm:hidden">{matches.filter((match) => match.status === 'upcoming').length} on deck · {state.players.length} players</p>
+          <SummaryStrip matches={matches} players={state.players} coaches={state.coaches} />
+        </div>
         <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
-            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
-            <button data-testid="tab-players" onClick={() => setView('players')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
-            <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
+            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
+            <button data-testid="tab-players" onClick={() => setView('players')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
+            <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
+          <span className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground sm:inline">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
         </div>
         {view === 'next' && (
           <div data-testid="my-matches" className="mt-4 flex gap-2 overflow-x-auto pb-1">
