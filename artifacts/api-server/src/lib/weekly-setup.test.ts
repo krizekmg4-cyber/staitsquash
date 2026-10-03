@@ -64,6 +64,7 @@ test("a setup with tournaments beats the Replit settings, and zones travel with 
       tournament({ id: "200", endsOn: "2026-01-01" }),
     ],
     followedPlayerIds: ["111"],
+    removedPlayerIds: [],
   };
   const config = setupToDrawsConfig(setup, { CLUB_LOCKER_TOURNAMENT_IDS: "999", CLUB_LOCKER_PLAYER_IDS: "222" }, new Date("2026-10-03T00:00:00Z"));
   assert.deepEqual(config?.tournamentIds, ["100"]);
@@ -80,13 +81,14 @@ test("only tournaments with a decided coach produce defaults", () => {
   const defaults = coachDefaults({
     tournaments: [tournament({ id: "1", coachId: "alex", coachMode: "virtual" }), tournament({ id: "2" })],
     followedPlayerIds: [],
+    removedPlayerIds: [],
   });
   assert.deepEqual(defaults, { "1": { coachId: "alex", coachMode: "virtual" } });
 });
 
 test("refresh findings are folded into the saved setup", () => {
   const next = applyReports(
-    { tournaments: [tournament()], followedPlayerIds: [] },
+    { tournaments: [tournament()], followedPlayerIds: [], removedPlayerIds: [] },
     [{
       id: "19518",
       info: { name: "Arlen", dates: "Oct 3-4", city: "Philadelphia", timeZone: "America/New_York", endsOn: "2026-10-04" },
@@ -179,7 +181,7 @@ const fakeClubLocker = (path: string): Promise<unknown> => {
 };
 
 test("check explains a tournament in plain words, and rejects a bad number", async () => {
-  await withRouter({ setup: { tournaments: [], followedPlayerIds: ["111"] } }, fakeClubLocker, [], async (base) => {
+  await withRouter({ setup: { tournaments: [], followedPlayerIds: ["111"], removedPlayerIds: [] } }, fakeClubLocker, [], async (base) => {
     const ok = await fetch(`${base}/tracker/setup/check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: "https://clublocker.com/tournaments/19518" }) });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { name: string; dates: string; city: string; timeZone: string; check: { state: string; playersFound: number; matches: number } };
@@ -211,7 +213,7 @@ test("players in a draw can be searched by name", async () => {
 });
 
 test("saving the setup validates coaches, applies a changed coach, and keeps hidden old events", async () => {
-  const state = { setup: { tournaments: [tournament({ id: "5", endsOn: "2026-09-01", name: "Old event" })], followedPlayerIds: [] } as WeeklySetup };
+  const state = { setup: { tournaments: [tournament({ id: "5", endsOn: "2026-09-01", name: "Old event" })], followedPlayerIds: [], removedPlayerIds: [] } as WeeklySetup };
   const applied: unknown[] = [];
   await withRouter(state, fakeClubLocker, applied, async (base) => {
     const put = (body: unknown) => fetch(`${base}/tracker/setup`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -235,4 +237,12 @@ test("saving the setup validates coaches, applies a changed coach, and keeps hid
     assert.equal((await put({ tournaments: [{ id: "19518", coachId: "nico", coachMode: "in-person" }], followedPlayerIds: ["111"] })).status, 200);
     assert.deepEqual(applied, [["19518", { coachId: "nico", coachMode: "in-person" }, "alex"]]);
   });
+});
+
+test("a kid staff removed stays out of the roster even if the Replit setting still lists them", () => {
+  const env = { CLUB_LOCKER_TOURNAMENT_IDS: "999", CLUB_LOCKER_PLAYER_IDS: "222,333" };
+  const config = setupToDrawsConfig({ tournaments: [], followedPlayerIds: [], removedPlayerIds: ["222"] }, env);
+  assert.deepEqual([...(config?.rosterIds ?? [])], ["333"]);
+  const parsed = normalizeSetup({ followedPlayerIds: ["333"], removedPlayerIds: ["222", "333", "x"] });
+  assert.deepEqual(parsed.removedPlayerIds, ["222"]);
 });

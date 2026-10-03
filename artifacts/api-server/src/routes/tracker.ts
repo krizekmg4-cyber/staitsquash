@@ -807,10 +807,11 @@ export function createTrackerRouter(
     // Stop following them too, so the next refresh does not bring them back.
     try {
       const setup = await dependencies.getSetup?.();
-      if (setup && setup.followedPlayerIds.includes(playerId)) {
+      if (setup) {
         await dependencies.saveSetup?.({
           ...setup,
           followedPlayerIds: setup.followedPlayerIds.filter((id) => id !== playerId),
+          removedPlayerIds: [...new Set([...setup.removedPlayerIds, playerId])],
         });
       }
     } catch (error) {
