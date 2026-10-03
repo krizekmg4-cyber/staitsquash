@@ -28,6 +28,7 @@ import {
   clearRefreshFailures,
   cloneTrackerState,
   freezeTrackerState,
+  applyTournamentCoach,
   mergeClubLockerFeed,
   parseClubLockerFeed,
   recordRefreshFailure,
@@ -36,7 +37,20 @@ import {
   type RefreshRecovery,
   type TrackerState,
 } from "../lib/club-locker.js";
-import { drawsConfigFromEnv, fetchClubLockerDraws } from "../lib/club-locker-draws.js";
+import {
+  drawsConfigFromEnv,
+  fetchClubLockerDrawsDetailed,
+  type TournamentReport,
+} from "../lib/club-locker-draws.js";
+import {
+  applyReports,
+  coachDefaults,
+  emptySetup,
+  normalizeSetup,
+  setupToDrawsConfig,
+  type WeeklySetup,
+} from "../lib/weekly-setup.js";
+import { SCHEDULER_TOKEN } from "../lib/scheduler-token.js";
 import { ObjectStorageService } from "../lib/object-storage.js";
 import { requireStaff } from "../middlewares/requireStaff.js";
 
@@ -285,17 +299,23 @@ async function mutateStateInTransaction<T>(
   });
 }
 
-async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
+async function fetchClubLockerFeed(
+  setup: WeeklySetup | null,
+): Promise<{ feed: ReadonlyClubLockerFeed; reports: TournamentReport[] }> {
   // A custom feed URL, when set, takes precedence over reading tournament
   // draws directly; the refresh tests rely on this to stub the feed.
   const url = process.env["CLUB_LOCKER_SCHEDULE_URL"];
-  const drawsConfig = drawsConfigFromEnv();
+  const drawsConfig = setup ? setupToDrawsConfig(setup) : drawsConfigFromEnv();
   if (!url && drawsConfig) {
-    return parseClubLockerFeed(await fetchClubLockerDraws(drawsConfig));
+    if (drawsConfig.rosterIds.size === 0) {
+      throw new Error("Add the players to follow in Settings, then refresh");
+    }
+    const { feed, reports } = await fetchClubLockerDrawsDetailed(drawsConfig);
+    return { feed: parseClubLockerFeed(feed), reports };
   }
   if (!url) {
     throw new Error(
-      "Club Locker is not configured. Set CLUB_LOCKER_TOURNAMENT_IDS and CLUB_LOCKER_PLAYER_IDS",
+      "No tournaments are set up yet. Add one in Settings, under This week",
     );
   }
 
@@ -310,7 +330,7 @@ async function fetchClubLockerFeed(): Promise<ReadonlyClubLockerFeed> {
     if (!response.ok) {
       throw new Error(`Club Locker returned HTTP ${response.status}`);
     }
-    return parseClubLockerFeed(await response.json());
+    return { feed: parseClubLockerFeed(await response.json()), reports: [] };
   } finally {
     clearTimeout(timeout);
   }
@@ -417,6 +437,8 @@ type TrackerRouterDependencies = {
   objectStorage?: Pick<ObjectStorageService, "saveObject" | "getObject" | "deleteObject"> &
     Partial<Pick<ObjectStorageService, "listVoiceNotesOlderThan">>;
   authorizeStaff?: RequestHandler;
+  getSetup?: () => Promise<WeeklySetup>;
+  saveSetup?: (setup: WeeklySetup) => Promise<void>;
   recoverInvalidState?: (request: {
     actorId: string;
     reason: string;
@@ -584,12 +606,53 @@ function isObjectPathReferenced(state: ReadonlyTrackerState, objectPath: string)
     state.matches.some((match) => match.report?.audioPath === objectPath);
 }
 
+export async function getSetupRow(): Promise<WeeklySetup> {
+  const { db, trackerStateTable } = await import("@workspace/db");
+  const [row] = await db
+    .select()
+    .from(trackerStateTable)
+    .where(eq(trackerStateTable.id, "setup"));
+  return row ? normalizeSetup(row.data) : emptySetup();
+}
+
+export async function saveSetupRow(setup: WeeklySetup): Promise<void> {
+  const { db, trackerStateTable } = await import("@workspace/db");
+  await db
+    .insert(trackerStateTable)
+    .values({ id: "setup", data: setup })
+    .onConflictDoUpdate({
+      target: trackerStateTable.id,
+      set: { data: setup, updatedAt: new Date() },
+    });
+}
+
+/** Give existing matches of one tournament their newly chosen coach. */
+export async function applyTournamentCoachToMatches(
+  tournamentId: string,
+  next: { coachId: string; coachMode: "in-person" | "virtual" },
+  previousCoachId: string | null,
+): Promise<void> {
+  await mutateStateInTransaction(async (loadLocked, saveLocked) => {
+    await saveLocked(applyTournamentCoach(await loadLocked(), tournamentId, next, previousCoachId));
+  });
+}
+
+export async function knownPlayers(): Promise<Array<{ id: string; name: string }>> {
+  return (await getState()).players.map((player) => ({ id: player.id, name: player.name }));
+}
+
+export async function knownCoaches(): Promise<Array<{ id: string; name: string }>> {
+  return (await getState()).coaches.map((coach) => ({ id: coach.id, name: coach.name }));
+}
+
 export function createTrackerRouter(
   dependencies: TrackerRouterDependencies = {
     getState,
     saveState,
     mutateState: mutateStateInTransaction,
     recoverInvalidState: recoverInvalidTrackerState,
+    getSetup: getSetupRow,
+    saveSetup: saveSetupRow,
   },
 ): IRouter {
   const router: IRouter = Router();
@@ -962,7 +1025,23 @@ export function createTrackerRouter(
     },
   );
 
-  router.post("/tracker/refresh", authorizeStaff, async (req, res): Promise<void> => {
+  // The built-in timer refreshes without a signed-in person, using a secret
+  // that only exists inside this process.
+  const authorizeRefresh: RequestHandler = (req, res, next) => {
+    if (req.header("x-scheduler-token") === SCHEDULER_TOKEN) {
+      next();
+      return;
+    }
+    authorizeStaff(req, res, next);
+  };
+
+  router.post("/tracker/refresh", authorizeRefresh, async (req, res): Promise<void> => {
+    let setup: WeeklySetup | null = null;
+    try {
+      setup = (await dependencies.getSetup?.()) ?? null;
+    } catch (error) {
+      req.log?.warn({ err: error }, "Could not read the weekly setup; using Replit settings");
+    }
     const alertThreshold = getAlertThreshold();
     const respondToFailure = async (error: unknown): Promise<void> => {
       const failure = await coordinateMutation(async (loadLockedState, saveLockedState) => {
@@ -1037,8 +1116,9 @@ export function createTrackerRouter(
     };
 
     let feed: ReadonlyClubLockerFeed;
+    let reports: TournamentReport[] = [];
     try {
-      feed = await fetchClubLockerFeed();
+      ({ feed, reports } = await fetchClubLockerFeed(setup));
     } catch (error) {
       await respondToFailure(error);
       return;
@@ -1049,7 +1129,7 @@ export function createTrackerRouter(
       notificationState = await coordinateMutation(
         async (loadLockedState, saveLockedState) => {
           const current = await loadLockedState();
-          const merged = mergeClubLockerFeed(current, feed);
+          const merged = mergeClubLockerFeed(current, feed, setup ? coachDefaults(setup) : {});
           const state = isActiveNotificationClaim(
             current.refreshHealth.failureAlertClaimedAt,
           )
@@ -1062,6 +1142,14 @@ export function createTrackerRouter(
     } catch (error) {
       await respondToFailure(error);
       return;
+    }
+
+    if (setup && reports.length && dependencies.saveSetup) {
+      try {
+        await dependencies.saveSetup(applyReports(await (dependencies.getSetup?.() ?? Promise.resolve(setup)), reports));
+      } catch (error) {
+        req.log?.warn({ err: error }, "Could not save the tournament check results");
+      }
     }
 
     while (true) {

@@ -63,6 +63,12 @@ export const GetTrackerResponse = zod.object({
   "court": zod.string(),
   "coachId": zod.string(),
   "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
+  "teammates": zod.boolean().optional().describe('Both sides of this match are followed players.'),
+  "moved": zod.object({
+  "at": zod.coerce.date(),
+  "fromStartsAt": zod.coerce.date(),
+  "fromCourt": zod.string()
+}).optional().describe('Set when Club Locker changed the time or court of an upcoming match.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -152,6 +158,12 @@ export const GetPlayerTrackerResponse = zod.object({
   "court": zod.string(),
   "coachId": zod.string(),
   "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
+  "teammates": zod.boolean().optional().describe('Both sides of this match are followed players.'),
+  "moved": zod.object({
+  "at": zod.coerce.date(),
+  "fromStartsAt": zod.coerce.date(),
+  "fromCourt": zod.string()
+}).optional().describe('Set when Club Locker changed the time or court of an upcoming match.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -236,6 +248,12 @@ export const SaveTrackerSettingsResponse = zod.object({
   "court": zod.string(),
   "coachId": zod.string(),
   "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
+  "teammates": zod.boolean().optional().describe('Both sides of this match are followed players.'),
+  "moved": zod.object({
+  "at": zod.coerce.date(),
+  "fromStartsAt": zod.coerce.date(),
+  "fromCourt": zod.string()
+}).optional().describe('Set when Club Locker changed the time or court of an upcoming match.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -353,6 +371,12 @@ export const UpdateMatchResponse = zod.object({
   "court": zod.string(),
   "coachId": zod.string(),
   "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
+  "teammates": zod.boolean().optional().describe('Both sides of this match are followed players.'),
+  "moved": zod.object({
+  "at": zod.coerce.date(),
+  "fromStartsAt": zod.coerce.date(),
+  "fromCourt": zod.string()
+}).optional().describe('Set when Club Locker changed the time or court of an upcoming match.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({
@@ -462,6 +486,12 @@ export const RefreshTrackerResponse = zod.object({
   "court": zod.string(),
   "coachId": zod.string(),
   "coachMode": zod.enum(['in-person', 'virtual']).optional().describe('Whether the coach is at the event or watching remotely. Absent means in-person.'),
+  "teammates": zod.boolean().optional().describe('Both sides of this match are followed players.'),
+  "moved": zod.object({
+  "at": zod.coerce.date(),
+  "fromStartsAt": zod.coerce.date(),
+  "fromCourt": zod.string()
+}).optional().describe('Set when Club Locker changed the time or court of an upcoming match.'),
   "status": zod.enum(['upcoming', 'completed']),
   "result": zod.string().nullish(),
   "report": zod.union([zod.object({

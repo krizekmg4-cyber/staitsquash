@@ -437,6 +437,17 @@ components:
           type: string
           enum: [in-person, virtual]
           description: Whether the coach is at the event or watching remotely. Absent means in-person.
+        teammates:
+          type: boolean
+          description: Both sides of this match are followed players.
+        moved:
+          type: object
+          required: [at, fromStartsAt, fromCourt]
+          description: Set when Club Locker changed the time or court of an upcoming match.
+          properties:
+            at: { type: string, format: date-time }
+            fromStartsAt: { type: string, format: date-time }
+            fromCourt: { type: string }
         status:
           type: string
           enum: [upcoming, completed]

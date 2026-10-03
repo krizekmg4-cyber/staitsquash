@@ -13,6 +13,7 @@ export * from './coachReportInput';
 export * from './healthStatus';
 export * from './match';
 export * from './matchCoachMode';
+export * from './matchMoved';
 export * from './matchStatus';
 export * from './matchUpdate';
 export * from './matchUpdateCoachMode';
