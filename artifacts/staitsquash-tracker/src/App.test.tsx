@@ -570,11 +570,13 @@ describe('match desk fixes', () => {
 describe('weekly setup in Settings', () => {
   type PutBody = { tournaments: Array<Record<string, unknown>>; followedPlayerIds: string[] };
   let puts: PutBody[];
+  let removed: string[];
   let view: { tournaments: Array<Record<string, unknown>>; followedPlayers: Array<{ id: string; name: string | null }> };
 
   beforeEach(() => {
     signedIn = true;
     puts = [];
+    removed = [];
     view = { tournaments: [], followedPlayers: [] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -601,6 +603,10 @@ describe('weekly setup in Settings', () => {
           timeZone: 'America/New_York', endsOn: '2026-10-04',
           check: { state: 'ready', message: 'The draw is posted. 1 of your players found, 3 matches scheduled.', playersFound: 1, matches: 3, checkedAt: '2026-10-02T12:00:00.000Z' },
         });
+      }
+      if (/\/api\/tracker\/players\/[^/]+$/.test(url) && init?.method === 'DELETE') {
+        removed.push(url.split('/').pop() ?? '');
+        return json({ ...tracker });
       }
       if (url.includes('/api/tracker/setup/players')) {
         return json({ drawPosted: true, total: 2, players: [{ id: '111', name: 'Casper Chen' }] });
@@ -640,6 +646,16 @@ describe('weekly setup in Settings', () => {
     fireEvent.click(await screen.findByTestId('follow-111'));
     await waitFor(() => expect(puts.at(-1)?.followedPlayerIds).toEqual(['111']));
     expect(await screen.findByTestId('followed-players')).toHaveTextContent('Casper Chen');
+  });
+
+  it('removes a kid from the board only after a confirmation', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.click(await screen.findByTestId('remove-kid-player-1'));
+    expect(screen.getByTestId('board-kid-player-1')).toHaveTextContent('Remove Alex Morgan, 1 match and 0 coach reports from the board?');
+    expect(removed).toEqual([]);
+    fireEvent.click(screen.getByTestId('confirm-remove-kid-player-1'));
+    await waitFor(() => expect(removed).toEqual(['player-1']));
   });
 });
 

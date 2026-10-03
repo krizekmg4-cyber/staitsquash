@@ -124,7 +124,11 @@ export function setupToDrawsConfig(
   if (tournamentIds.length === 0) return null;
   return {
     tournamentIds,
-    rosterIds: new Set([...setup.followedPlayerIds, ...list(env["CLUB_LOCKER_PLAYER_IDS"])]),
+    // Once tournaments are set up in the app, its own list of kids is the whole
+    // roster; the Replit setting is only the starting point before that.
+    rosterIds: new Set(
+      active.length ? setup.followedPlayerIds : [...setup.followedPlayerIds, ...list(env["CLUB_LOCKER_PLAYER_IDS"])],
+    ),
     timeZone: env["CLUB_LOCKER_TIMEZONE"]?.trim() || "America/New_York",
     timeZones: Object.fromEntries(active.map((tournament) => [tournament.id, tournament.timeZone])),
   };

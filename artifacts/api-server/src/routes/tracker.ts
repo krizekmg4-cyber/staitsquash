@@ -786,6 +786,40 @@ export function createTrackerRouter(
     }));
   });
 
+  // Remove a player from the board together with their matches and reports,
+  // so a new season or a test run can start clean. Staff confirm in the app.
+  router.delete("/tracker/players/:playerId", authorizeStaff, async (req, res): Promise<void> => {
+    const playerId = String(req.params["playerId"] ?? "");
+    const removed = await coordinateMutation(async (loadLockedState, saveLockedState) => {
+      const state = cloneTrackerState(await loadLockedState());
+      if (!state.players.some((item) => item.id === playerId)) return null;
+      const matchCount = state.matches.filter((match) => match.playerId === playerId).length;
+      state.players = state.players.filter((item) => item.id !== playerId);
+      state.matches = state.matches.filter((match) => match.playerId !== playerId);
+      state.lastUpdatedAt = new Date().toISOString();
+      await saveLockedState(state);
+      return { state, matchCount };
+    });
+    if (!removed) {
+      res.status(404).json({ error: "Player not found" });
+      return;
+    }
+    // Stop following them too, so the next refresh does not bring them back.
+    try {
+      const setup = await dependencies.getSetup?.();
+      if (setup && setup.followedPlayerIds.includes(playerId)) {
+        await dependencies.saveSetup?.({
+          ...setup,
+          followedPlayerIds: setup.followedPlayerIds.filter((id) => id !== playerId),
+        });
+      }
+    } catch (error) {
+      req.log?.warn({ err: error }, "Could not update the followed players after removing one");
+    }
+    req.log?.info({ playerId, matches: removed.matchCount }, "Player removed from the board");
+    res.json(GetTrackerResponse.parse(trackerResponse(removed.state)));
+  });
+
   router.post("/tracker/players/:playerId/share-token", authorizeStaff, async (req, res): Promise<void> => {
     const params = RotatePlayerShareTokenParams.safeParse(req.params);
     if (!params.success) {

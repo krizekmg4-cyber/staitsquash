@@ -2222,3 +2222,52 @@ test("coach mode: a new coach resets to in-person, Virtual sticks, and removed c
     );
   }
 });
+
+test("removing a player deletes their matches, stops following them, and 404s for unknown players", async () => {
+  let state = healthyState();
+  state.players = [
+    { id: "p1", name: "Kid One", shareToken: "a".repeat(43) },
+    { id: "p2", name: "Kid Two", shareToken: "b".repeat(43) },
+  ];
+  const match = (id: string, playerId: string) => ({
+    id,
+    externalId: null,
+    playerId,
+    opponent: "Opp",
+    startsAt: "2026-09-16T10:00:00.000Z",
+    endsAt: "2026-09-16T10:45:00.000Z",
+    venue: "V",
+    court: "Court 1",
+    coachId: "coach-1",
+    status: "upcoming" as const,
+    result: null,
+    report: null,
+  });
+  state.matches = [match("m1", "p1"), match("m2", "p1"), match("m3", "p2")];
+  let setup = { tournaments: [], followedPlayerIds: ["p1", "p2"] };
+  const app = express();
+  app.use(express.json());
+  app.use(createTrackerRouter({
+    getState: async () => structuredClone(state),
+    saveState: async (next) => { state = structuredClone(next); },
+    getSetup: async () => structuredClone(setup),
+    saveSetup: async (next) => { setup = structuredClone(next) as typeof setup; },
+    objectStorage: { saveObject: async () => undefined, getObject: async () => ({}) as never, deleteObject: async () => undefined },
+    authorizeStaff: (_req, _res, next) => next(),
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const gone = await fetch(`${base}/tracker/players/p1`, { method: "DELETE" });
+    assert.equal(gone.status, 200);
+    assert.deepEqual(state.players.map((player) => player.id), ["p2"]);
+    assert.deepEqual(state.matches.map((item) => item.id), ["m3"]);
+    assert.deepEqual(setup.followedPlayerIds, ["p2"]);
+    assert.equal((await fetch(`${base}/tracker/players/nobody`, { method: "DELETE" })).status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
