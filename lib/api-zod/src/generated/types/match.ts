@@ -7,6 +7,7 @@
  */
 import type { CoachReport } from './coachReport';
 import type { MatchCoachMode } from './matchCoachMode';
+import type { MatchMoved } from './matchMoved';
 import type { MatchStatus } from './matchStatus';
 
 export interface Match {
@@ -22,6 +23,10 @@ export interface Match {
   coachId: string;
   /** Whether the coach is at the event or watching remotely. Absent means in-person. */
   coachMode?: MatchCoachMode;
+  /** Both sides of this match are followed players. */
+  teammates?: boolean;
+  /** Set when Club Locker changed the time or court of an upcoming match. */
+  moved?: MatchMoved;
   status: MatchStatus;
   /** @nullable */
   result?: string | null;

@@ -11,6 +11,10 @@ type TrackerMatch = {
     court: string;
     coachId: string;
     coachMode?: "in-person" | "virtual";
+    // Both sides of this match are followed players (StaitSquash vs StaitSquash).
+    teammates?: boolean;
+    // Set when Club Locker changes the time or court of an upcoming match.
+    moved?: { at: string; fromStartsAt: string; fromCourt: string };
     status: "upcoming" | "completed";
     result: string | null;
     report: {
@@ -204,6 +208,7 @@ export type ClubLockerMatch = {
   court: string;
   status?: "upcoming" | "completed";
   result?: string | null;
+  teammates?: boolean;
 };
 
 export type ClubLockerFeed = {
@@ -302,6 +307,7 @@ export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
         typeof match.result === "string" || match.result === null
           ? match.result
           : undefined,
+      teammates: match.teammates === true ? true : undefined,
     };
   });
 
@@ -378,9 +384,16 @@ function withoutSampleDraw(
   return { ...state, matches, players };
 }
 
+export type TournamentCoachDefaults = Record<
+  string,
+  { coachId: string; coachMode: "in-person" | "virtual" }
+>;
+
 export function mergeClubLockerFeed(
   loadedState: ReadonlyTrackerState,
   feed: ReadonlyClubLockerFeed,
+  tournamentCoaches: TournamentCoachDefaults = {},
+  now: Date = new Date(),
 ): TrackerState {
   const state = withoutSampleDraw(loadedState, feed);
   const currentByExternalId = new Map(
@@ -433,26 +446,49 @@ export function mergeClubLockerFeed(
       // closed yet; a result staff entered themselves is never overwritten.
       const adoptResult =
         incoming?.status === "completed" && match.status === "upcoming";
-      return incoming
-        ? {
-            ...cloneTrackerMatch(match),
-            playerId: incoming.playerId,
-            opponent: incoming.opponent,
-            startsAt: incoming.startsAt,
-            endsAt: incoming.endsAt,
-            venue: incoming.venue,
-            court: incoming.court,
-            ...(adoptResult
-              ? { status: "completed" as const, result: incoming.result ?? null }
-              : {}),
-          }
-        : cloneTrackerMatch(match);
+      if (!incoming) return cloneTrackerMatch(match);
+      // A time or court change on a match still to be played is flagged so
+      // coaches notice it. "Court TBA" becoming a court is not a move.
+      const timeChanged = Date.parse(incoming.startsAt) !== Date.parse(match.startsAt);
+      const courtChanged =
+        incoming.court !== match.court && !/tba/i.test(match.court);
+      const moved =
+        match.status === "upcoming" && (timeChanged || courtChanged)
+          ? {
+              at: now.toISOString(),
+              fromStartsAt: match.startsAt,
+              fromCourt: match.court,
+            }
+          : match.moved;
+      const next: TrackerMatch = {
+        ...cloneTrackerMatch(match),
+        playerId: incoming.playerId,
+        opponent: incoming.opponent,
+        startsAt: incoming.startsAt,
+        endsAt: incoming.endsAt,
+        venue: incoming.venue,
+        court: incoming.court,
+        ...(adoptResult
+          ? { status: "completed" as const, result: incoming.result ?? null }
+          : {}),
+      };
+      if (incoming.teammates) next.teammates = true;
+      else delete next.teammates;
+      if (moved) next.moved = moved;
+      return next;
     });
 
   for (const incoming of feed.matches) {
     const existing = currentByExternalId.get(incoming.externalId);
     if (existing) continue;
 
+    // New matches start with their tournament's coach. StaitSquash kids
+    // playing each other are not coached unless a coach is picked by hand.
+    const tournamentDefault = tournamentCoaches[incoming.externalId.split(":")[0] ?? ""];
+    const coachId = incoming.teammates
+      ? "not-coaching"
+      : tournamentDefault?.coachId ?? "unassigned";
+    const realCoach = coachId !== "unassigned" && coachId !== "not-coaching";
     retained.push({
       id: `club-locker:${Buffer.from(incoming.externalId).toString("base64url")}`,
       externalId: incoming.externalId,
@@ -462,7 +498,11 @@ export function mergeClubLockerFeed(
       endsAt: incoming.endsAt,
       venue: incoming.venue,
       court: incoming.court,
-      coachId: "unassigned",
+      coachId,
+      ...(realCoach && tournamentDefault?.coachMode === "virtual"
+        ? { coachMode: "virtual" as const }
+        : {}),
+      ...(incoming.teammates ? { teammates: true } : {}),
       status: incoming.status ?? "upcoming",
       result: incoming.result ?? null,
       report: null,

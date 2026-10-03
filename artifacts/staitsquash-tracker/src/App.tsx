@@ -56,6 +56,20 @@ const coachLabel = (coach: Coach | undefined, match: Pick<Match, 'coachMode'>) =
   return match.coachMode === 'virtual' ? `${coach.name} (virtual)` : coach.name;
 };
 
+const MOVED_TAG_HOURS = 3;
+const movedNote = (match: Match, now = Date.now()) => {
+  if (!match.moved || match.status === 'completed') return null;
+  if (now - Date.parse(match.moved.at) > MOVED_TAG_HOURS * 3_600_000) return null;
+  const parts: string[] = [];
+  if (Date.parse(match.moved.fromStartsAt) !== Date.parse(match.startsAt)) parts.push(`was ${formatTime(match.moved.fromStartsAt)}`);
+  if (match.moved.fromCourt !== match.court) parts.push(`was ${match.moved.fromCourt}`);
+  return parts.length ? `Moved · ${parts.join(' · ')}` : null;
+};
+const startsSoon = (match: Match, now = Date.now()) => {
+  const minutes = Math.round((Date.parse(match.startsAt) - now) / 60_000);
+  return minutes >= -10 && minutes <= 30 ? minutes : null;
+};
+
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
 const formatDay = (value: string) =>
@@ -225,13 +239,15 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
 
 type CoachPatch = { coachId?: string; coachMode?: 'in-person' | 'virtual' };
 
-function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, patch: CoachPatch) => void; savingMatchId: string | null }) {
+function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, filterCoachId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, patch: CoachPatch) => void; savingMatchId: string | null; filterCoachId: string | null }) {
   const rows = players.map((player) => ({
     player,
     next: matches.filter((match) => match.playerId === player.id && match.status !== 'completed').sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0],
   }));
-  const playing = rows.filter((row) => row.next).sort((a, b) => +new Date(a.next!.startsAt) - +new Date(b.next!.startsAt));
-  const waiting = rows.filter((row) => !row.next);
+  const playing = rows
+    .filter((row) => row.next && (!filterCoachId || row.next.coachId === filterCoachId))
+    .sort((a, b) => +new Date(a.next!.startsAt) - +new Date(b.next!.startsAt));
+  const waiting = filterCoachId ? [] : rows.filter((row) => !row.next);
   // One group per venue, earliest venue first, so each event's kids sit together.
   const groups: Array<{ venue: string; rows: typeof playing }> = [];
   for (const row of playing) {
@@ -239,9 +255,10 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: 
     if (group) group.rows.push(row); else groups.push({ venue: row.next!.venue, rows: [row] });
   }
   const realCoaches = coaches.filter((coach) => !isSystemCoach(coach.id));
+  const columns = 'md:grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1.3fr]';
   return (
     <div data-testid="board-next-matches" className="overflow-hidden rounded-2xl border border-card-border bg-card shadow-sm">
-      <div className="hidden grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1.3fr] gap-3 border-b border-border bg-muted/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:grid">
+      <div className={cx('hidden gap-3 border-b border-border bg-muted/50 px-4 py-2 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground md:grid', columns)}>
         <span>Player</span><span>Next match</span><span>Court</span><span>Venue</span><span>Opponent</span><span>Coach</span>
       </div>
       {groups.map((group) => (
@@ -253,14 +270,25 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: 
             const unassigned = next!.coachId === 'unassigned';
             const notCoaching = next!.coachId === 'not-coaching';
             const virtual = next!.coachMode === 'virtual';
+            const moved = movedNote(next!);
+            const soon = startsSoon(next!);
+            const tagged = Boolean(moved || next!.teammates || soon !== null);
             return (
-              <div key={player.id} data-testid={`row-next-${player.id}`} className="grid gap-x-3 gap-y-1 border-b border-border px-4 py-3 last:border-b-0 md:grid-cols-[1.2fr_.9fr_.7fr_1.1fr_1.2fr_1.3fr] md:items-center">
-                <p className="text-sm font-bold">{player.name}</p>
-                <p className="text-sm"><span className="font-mono font-bold">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
-                <p className="text-sm font-semibold">{next!.court}</p>
-                <p className="truncate text-xs text-muted-foreground">{next!.venue}</p>
-                <p className="truncate text-sm">vs {next!.opponent}</p>
-                <div className="flex items-center gap-2">
+              <div key={player.id} data-testid={`row-next-${player.id}`} className={cx('grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-b-0 md:items-center', columns, soon !== null && 'bg-accent/5')}>
+                <p className="min-w-0 truncate text-base font-bold md:text-sm">{player.name}</p>
+                <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
+                <p className="col-span-2 truncate text-sm md:hidden"><span className="font-semibold">{next!.court}</span> <span className="text-muted-foreground">· vs {next!.opponent}</span></p>
+                <p className="hidden text-sm font-semibold md:block">{next!.court}</p>
+                <p className="hidden truncate text-xs text-muted-foreground md:block">{next!.venue}</p>
+                <p className="hidden truncate text-sm md:block">vs {next!.opponent}</p>
+                {tagged && (
+                  <div className="col-span-2 flex flex-wrap gap-1.5 md:col-span-6">
+                    {soon !== null && <span data-testid={`tag-soon-${next!.id}`} className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-bold text-accent-foreground">{soon <= 0 ? 'Starting now' : `Starts in ${soon} min`}</span>}
+                    {moved && <span data-testid={`tag-moved-${next!.id}`} className="rounded-full border border-accent px-2.5 py-1 text-[11px] font-bold text-accent">{moved}</span>}
+                    {next!.teammates && <span data-testid={`tag-teammates-${next!.id}`} className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">vs StaitSquash</span>}
+                  </div>
+                )}
+                <div className="col-span-2 flex items-center gap-2 md:col-span-1">
                   <span className="relative block min-w-0 flex-1">
                     <select
                       data-testid={`select-assign-${next!.id}`}
@@ -268,19 +296,20 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: 
                       value={next!.coachId}
                       disabled={savingMatchId === next!.id}
                       onChange={(event) => onAssign(next!, { coachId: event.target.value })}
-                      className={cx('field appearance-none py-2 pr-8 text-sm', unassigned && 'border-accent text-accent', notCoaching && 'text-muted-foreground')}
+                      className={cx('field min-h-11 appearance-none py-2 pr-8 text-base md:min-h-0 md:text-sm', unassigned && 'border-accent text-accent', notCoaching && 'text-muted-foreground')}
                     >
                       {realCoaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}
                       <option value="not-coaching">Not coaching</option>
                       <option value="unassigned">Unassigned</option>
                     </select>
-                    <ChevronDown size={14} className="pointer-events-none absolute right-3 top-3 text-muted-foreground" />
+                    <ChevronDown size={14} className="pointer-events-none absolute right-3 top-4 text-muted-foreground md:top-3" />
                   </span>
                   {!unassigned && !notCoaching && (
-                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                    <label className="flex min-h-11 shrink-0 cursor-pointer items-center gap-2 px-1 text-sm font-semibold text-muted-foreground md:min-h-0 md:gap-1.5 md:text-xs">
                       <input
                         data-testid={`toggle-virtual-${next!.id}`}
                         type="checkbox"
+                        className="h-5 w-5 md:h-4 md:w-4"
                         checked={virtual}
                         disabled={savingMatchId === next!.id}
                         onChange={(event) => onAssign(next!, { coachMode: event.target.checked ? 'virtual' : 'in-person' })}
@@ -299,7 +328,7 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId }: 
           No upcoming match: {waiting.map((row) => row.player.name).join(', ')}
         </div>
       )}
-      {!playing.length && !waiting.length && <p className="px-4 py-6 text-center text-sm text-muted-foreground">No players yet. Refresh the draw to load them.</p>}
+      {!playing.length && !waiting.length && <p className="px-4 py-6 text-center text-sm text-muted-foreground">{filterCoachId ? 'No upcoming matches for this coach.' : 'No players yet. Refresh the draw to load them.'}</p>}
     </div>
   );
 }
@@ -691,6 +720,16 @@ function TrackerPage() {
     updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
   };
   const [assigningMatchId, setAssigningMatchId] = useState<string | null>(null);
+  const [myCoachId, setMyCoachId] = useState<string | null>(() => {
+    try { return window.localStorage.getItem('staitsquash-my-coach'); } catch { return null; }
+  });
+  const chooseMyCoach = (coachId: string | null) => {
+    setMyCoachId(coachId);
+    try {
+      if (coachId) window.localStorage.setItem('staitsquash-my-coach', coachId);
+      else window.localStorage.removeItem('staitsquash-my-coach');
+    } catch { /* private browsing: the choice just is not remembered */ }
+  };
   const assignCoach = (match: Match, patch: CoachPatch) => {
     setAssigningMatchId(match.id);
     updateMatch.mutate({ matchId: match.id, data: patch }, {
@@ -759,7 +798,7 @@ function TrackerPage() {
             </div>
           </div>
         )}
-        <div className="rise-in flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="rise-in hidden flex-col justify-between gap-4 sm:flex sm:flex-row sm:items-end">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(new Date())} · match desk</p>
             <h1 data-testid="heading-tracker" className="mt-2 font-serif text-4xl font-bold tracking-[-.04em] sm:text-5xl">Stay on court.</h1>
@@ -769,7 +808,7 @@ function TrackerPage() {
             <Clock3 size={15} className="text-accent" /> Live draw view
           </div>
         </div>
-        <div className="rise-in delay-1 mt-7"><SummaryStrip matches={matches} players={state.players} coaches={state.coaches} /></div>
+        <div className="rise-in delay-1 mt-2 sm:mt-7"><SummaryStrip matches={matches} players={state.players} coaches={state.coaches} /></div>
         <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
@@ -779,8 +818,16 @@ function TrackerPage() {
           </div>
           <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
         </div>
+        {view === 'next' && (
+          <div data-testid="my-matches" className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            <button type="button" data-testid="chip-everyone" onClick={() => chooseMyCoach(null)} className={cx('min-h-11 shrink-0 rounded-full border px-4 text-sm font-bold', !myCoachId ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground')}>Everyone</button>
+            {state.coaches.filter((coach) => !isSystemCoach(coach.id)).map((coach) => (
+              <button key={coach.id} type="button" data-testid={`chip-coach-${coach.id}`} onClick={() => chooseMyCoach(coach.id)} className={cx('min-h-11 shrink-0 rounded-full border px-4 text-sm font-bold', myCoachId === coach.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground')}>{coach.name}</button>
+            ))}
+          </div>
+        )}
         <div className="rise-in delay-3 mt-4 space-y-3">
-          {view === 'next' && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} />}
+          {view === 'next' && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} filterCoachId={myCoachId && state.coaches.some((coach) => coach.id === myCoachId) ? myCoachId : null} />}
           {view !== 'next' && filteredMatches.map((match) => (
             <MatchCard key={match.id} match={match} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
           ))}

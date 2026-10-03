@@ -1093,3 +1093,55 @@ test("reports recovery details only after an alerted failure", () => {
     },
   );
 });
+test("flags a time or court change on an upcoming match, but not a court being assigned", () => {
+  const now = new Date("2026-09-16T10:00:00-04:00");
+  const moved = mergeClubLockerFeed(
+    stateWith(storedMatch("19515:1:p")),
+    { matches: [incoming("19515:1:p", { startsAt: "2026-09-16T15:30:00-04:00", endsAt: "2026-09-16T16:15:00-04:00", court: "Court 4" })] },
+    {},
+    now,
+  );
+  assert.deepEqual(moved.matches[0]?.moved, {
+    at: now.toISOString(),
+    fromStartsAt: "2026-09-16T14:30:00-04:00",
+    fromCourt: "Court 1",
+  });
+  assert.equal(moved.matches[0]?.coachId, "coach-1");
+
+  const assigned = mergeClubLockerFeed(
+    stateWith(storedMatch("19515:2:p", { court: "Court TBA" })),
+    { matches: [incoming("19515:2:p", { court: "Court 3" })] },
+    {},
+    now,
+  );
+  assert.equal(assigned.matches[0]?.moved, undefined);
+
+  const unchanged = mergeClubLockerFeed(
+    stateWith(storedMatch("19515:3:p")),
+    { matches: [incoming("19515:3:p")] },
+    {},
+    now,
+  );
+  assert.equal(unchanged.matches[0]?.moved, undefined);
+});
+
+test("new matches take their tournament's coach; teammates default to Not coaching", () => {
+  const result = mergeClubLockerFeed(
+    stateWith(),
+    {
+      matches: [
+        incoming("19515:1:p"),
+        incoming("19516:2:p", { startsAt: "2026-09-17T14:30:00-04:00", endsAt: "2026-09-17T15:15:00-04:00" }),
+        incoming("19515:3:p", { startsAt: "2026-09-18T14:30:00-04:00", endsAt: "2026-09-18T15:15:00-04:00", teammates: true }),
+      ],
+    },
+    { "19515": { coachId: "coach-1", coachMode: "virtual" } },
+  );
+  const byId = Object.fromEntries(result.matches.map((match) => [match.externalId, match]));
+  assert.equal(byId["19515:1:p"]?.coachId, "coach-1");
+  assert.equal(byId["19515:1:p"]?.coachMode, "virtual");
+  assert.equal(byId["19516:2:p"]?.coachId, "unassigned");
+  assert.equal(byId["19515:3:p"]?.coachId, "not-coaching");
+  assert.equal(byId["19515:3:p"]?.coachMode, undefined);
+  assert.equal(byId["19515:3:p"]?.teammates, true);
+});

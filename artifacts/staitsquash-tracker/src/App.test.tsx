@@ -540,4 +540,30 @@ describe('match desk fixes', () => {
     await waitFor(() => expect(patches[1]).toEqual({ coachId: 'not-coaching' }));
     await waitFor(() => expect(screen.queryByTestId('toggle-virtual-match-1')).not.toBeInTheDocument());
   });
+  it('tags moved matches and StaitSquash-vs-StaitSquash, and filters by coach', async () => {
+    const base = tracker.matches[0];
+    persistedTracker = {
+      ...persistedTracker,
+      players: [...tracker.players, { id: 'player-2', name: 'Sam Two', shareToken: 'b'.repeat(43) }],
+      coaches: withSystemCoaches(),
+      matches: [
+        {
+          ...base,
+          id: 'match-a',
+          court: 'Court 4',
+          moved: { at: new Date().toISOString(), fromStartsAt: '2026-09-19T08:15:00.000Z', fromCourt: 'Court 2' },
+        },
+        { ...base, id: 'match-b', playerId: 'player-2', coachId: 'coach-2', teammates: true },
+      ],
+    } as unknown as typeof tracker;
+    render(<App />);
+    expect(await screen.findByTestId('tag-moved-match-a')).toHaveTextContent('was Court 2');
+    expect(screen.getByTestId('tag-teammates-match-b')).toHaveTextContent('vs StaitSquash');
+
+    fireEvent.click(screen.getByTestId('chip-coach-coach-1'));
+    expect(screen.getByTestId('row-next-player-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('row-next-player-2')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('chip-everyone'));
+    expect(screen.getByTestId('row-next-player-2')).toBeInTheDocument();
+  });
 });

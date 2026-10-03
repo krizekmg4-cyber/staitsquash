@@ -32,6 +32,23 @@ export type TournamentDraws = {
   // used by multi-venue tournaments.
   venueCodes: string | null;
   matches: DrawMatch[];
+  // Where the tournament is played, so match times are read in the right zone.
+  timeZone?: string;
+  info?: TournamentInfo;
+};
+
+export type TournamentInfo = {
+  name: string;
+  dates: string | null;
+  city: string | null;
+  timeZone: string;
+};
+
+export type TournamentCheck = {
+  state: "ready" | "no-draw" | "no-players" | "error";
+  message: string;
+  playersFound: number;
+  matches: number;
 };
 
 type RosterMatch = ClubLockerMatch & { playerName: string };
@@ -189,18 +206,18 @@ export function drawsToFeed(
       const startsAt = localStartToIso(
         text(match.matchdate),
         text(match.StartTime),
-        timeZone,
+        tournament.timeZone ?? timeZone,
       );
       if (!startsAt) continue;
 
       const sides = [
-        { side: "H" as const, id: memberId(match.wid1), name: text(match.hplayer1), other: text(match.vplayer1) },
-        { side: "V" as const, id: memberId(match.oid1), name: text(match.vplayer1), other: text(match.hplayer1) },
+        { side: "H" as const, id: memberId(match.wid1), name: text(match.hplayer1), other: text(match.vplayer1), otherId: memberId(match.oid1) },
+        { side: "V" as const, id: memberId(match.oid1), name: text(match.vplayer1), other: text(match.hplayer1), otherId: memberId(match.wid1) },
       ];
       const completed = text(match.Status).toUpperCase() !== "S";
       const { venue, court } = courtAndVenue(match, tournament.venueName, venueCodes);
 
-      for (const { side, id, name, other } of sides) {
+      for (const { side, id, name, other, otherId } of sides) {
         if (!id || !name || !rosterIds.has(id)) continue;
         if (completed && !other) continue;
         found.push({
@@ -214,6 +231,7 @@ export function drawsToFeed(
           court,
           status: completed ? "completed" : "upcoming",
           result: completed ? resultFor(match, side) : null,
+          ...(otherId && rosterIds.has(otherId) ? { teammates: true } : {}),
         });
       }
     }
@@ -253,6 +271,8 @@ export type ClubLockerDrawsConfig = {
   tournamentIds: string[];
   rosterIds: ReadonlySet<string>;
   timeZone: string;
+  /** Per-tournament zone overrides, keyed by tournament number. */
+  timeZones?: Record<string, string>;
 };
 
 /** Read tournament IDs, roster and timezone from the environment. */
@@ -286,29 +306,84 @@ async function getJson(path: string): Promise<unknown> {
   }
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-10-03T00:00:00" and "2026-10-04T00:00:00" -> "Oct 3-4". */
+export function formatTournamentDates(start: unknown, end: unknown): string | null {
+  const parse = (value: unknown) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text(value));
+    return match ? { month: Number(match[2]) - 1, day: Number(match[3]) } : null;
+  };
+  const from = parse(start);
+  const to = parse(end) ?? from;
+  if (!from || !to) return null;
+  if (from.month === to.month && from.day === to.day) return `${MONTHS[from.month]} ${from.day}`;
+  if (from.month === to.month) return `${MONTHS[from.month]} ${from.day}-${to.day}`;
+  return `${MONTHS[from.month]} ${from.day} - ${MONTHS[to.month]} ${to.day}`;
+}
+
+/**
+ * Club Locker gives a venue's coordinates but no time zone. Longitude bands
+ * are right for almost every US club and staff can change the zone by hand.
+ */
+export function timeZoneFromCoordinates(lat: number, lng: number): string | null {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < 18 || lat > 72 || lng > -66 || lng < -170) return null;
+  if (lng >= -85) return "America/New_York";
+  if (lng >= -102) return "America/Chicago";
+  if (lat > 31 && lat < 37 && lng >= -115 && lng < -109) return "America/Phoenix";
+  if (lng >= -115) return "America/Denver";
+  return "America/Los_Angeles";
+}
+
 async function loadTournamentDraws(
   tournamentId: string,
   fetchJson: (path: string) => Promise<unknown>,
-): Promise<TournamentDraws> {
+  fallbackTimeZone = "America/New_York",
+  overrideTimeZone?: string,
+): Promise<TournamentDraws & { info: TournamentInfo }> {
   const id = encodeURIComponent(tournamentId);
-  const tournament = (await fetchJson(`tournaments/${id}`)) as {
+  let tournament: {
+    Tournament_Id?: unknown;
     Tournament_Name?: unknown;
     Checks_To?: unknown;
+    Start_Date?: unknown;
+    End_Date?: unknown;
+    Site_City?: unknown;
     venues?: Array<{ ClubId?: unknown; IsMain?: unknown }>;
   };
+  try {
+    tournament = (await fetchJson(`tournaments/${id}`)) as typeof tournament;
+  } catch {
+    throw new Error(`Club Locker has no tournament numbered ${tournamentId}. Check the number or link.`);
+  }
+  if (!tournament || (!memberId(tournament.Tournament_Id) && !text(tournament.Tournament_Name))) {
+    throw new Error(`Club Locker has no tournament numbered ${tournamentId}. Check the number or link.`);
+  }
 
-  let venueName = text(tournament.Tournament_Name) || `Tournament ${tournamentId}`;
+  const tournamentName = text(tournament.Tournament_Name) || `Tournament ${tournamentId}`;
+  let venueName = tournamentName;
+  let city = text(tournament.Site_City) || null;
+  let detectedZone: string | null = null;
   const mainClub =
     tournament.venues?.find((venue) => venue.IsMain) ?? tournament.venues?.[0];
   const clubId = memberId(mainClub?.ClubId);
   if (clubId) {
     try {
-      const club = (await fetchJson(`res/clubs/${clubId}`)) as { name?: unknown };
+      const club = (await fetchJson(`res/clubs/${clubId}`)) as {
+        name?: unknown;
+        City?: unknown;
+        lat?: unknown;
+        lng?: unknown;
+      };
       venueName = text(club.name) || venueName;
+      city = city ?? (text(club.City) || null);
+      detectedZone = timeZoneFromCoordinates(Number(club.lat), Number(club.lng));
     } catch {
       // The tournament name is a reasonable venue label if the club lookup fails.
     }
   }
+  const timeZone = overrideTimeZone || detectedZone || fallbackTimeZone;
 
   const divisions = await fetchJson(`tournaments/${id}/divisionsandsections`);
   if (!Array.isArray(divisions)) {
@@ -333,6 +408,64 @@ async function loadTournamentDraws(
     venueName,
     venueCodes: text(tournament.Checks_To) || null,
     matches,
+    timeZone,
+    info: {
+      name: tournamentName,
+      dates: formatTournamentDates(tournament.Start_Date, tournament.End_Date),
+      city,
+      timeZone,
+    },
+  };
+}
+
+/** What Alex sees under a tournament: is the draw out, and are our kids in it. */
+export function checkTournament(
+  draws: TournamentDraws,
+  rosterIds: ReadonlySet<string>,
+  timeZone: string,
+): TournamentCheck {
+  const everyone = draws.matches.length;
+  const feed = drawsToFeed([draws], rosterIds, timeZone);
+  const present = new Set<string>();
+  for (const match of draws.matches) {
+    for (const id of [memberId(match.wid1), memberId(match.oid1)]) {
+      if (id && rosterIds.has(id)) present.add(id);
+    }
+  }
+  const playersFound = present.size;
+  if (everyone === 0) {
+    return {
+      state: "no-draw",
+      message: "The draw is not posted yet. Check back once the draw is made.",
+      playersFound: 0,
+      matches: 0,
+    };
+  }
+  if (rosterIds.size === 0) {
+    return {
+      state: "ready",
+      message: "The draw is posted. Add your players to see their matches.",
+      playersFound: 0,
+      matches: 0,
+    };
+  }
+  if (playersFound === 0) {
+    return {
+      state: "no-players",
+      message: "The draw is posted but none of your players are in it. Check the player IDs.",
+      playersFound: 0,
+      matches: 0,
+    };
+  }
+  const scheduled = feed.matches.length;
+  return {
+    state: "ready",
+    message:
+      scheduled > 0
+        ? `The draw is posted. ${playersFound} of your players found, ${scheduled} matches scheduled.`
+        : `The draw is posted. ${playersFound} of your players found. Match times are not published yet.`,
+    playersFound,
+    matches: scheduled,
   };
 }
 
@@ -344,7 +477,66 @@ export async function fetchClubLockerDraws(
     throw new Error("Add US Squash player IDs to CLUB_LOCKER_PLAYER_IDS");
   }
   const tournaments = await Promise.all(
-    config.tournamentIds.map((id) => loadTournamentDraws(id, fetchJson)),
+    config.tournamentIds.map((id) =>
+      loadTournamentDraws(id, fetchJson, config.timeZone, config.timeZones?.[id]),
+    ),
   );
   return drawsToFeed(tournaments, config.rosterIds, config.timeZone);
+}
+
+export type TournamentReport = {
+  id: string;
+  info: TournamentInfo | null;
+  check: TournamentCheck;
+};
+
+/**
+ * Like fetchClubLockerDraws, but one tournament failing never blocks the
+ * others: it reports each tournament's status so staff can see which one.
+ * Throws only if every tournament failed.
+ */
+export async function fetchClubLockerDrawsDetailed(
+  config: ClubLockerDrawsConfig,
+  fetchJson: (path: string) => Promise<unknown> = getJson,
+): Promise<{ feed: ClubLockerFeed; reports: TournamentReport[] }> {
+  const loaded = await Promise.all(
+    config.tournamentIds.map(async (id) => {
+      try {
+        const draws = await loadTournamentDraws(id, fetchJson, config.timeZone, config.timeZones?.[id]);
+        return { id, draws, error: null as string | null };
+      } catch (error) {
+        return {
+          id,
+          draws: null,
+          error: error instanceof Error ? error.message : "Club Locker could not be reached",
+        };
+      }
+    }),
+  );
+  const good = loaded.flatMap((item) => (item.draws ? [item.draws] : []));
+  if (good.length === 0 && loaded.length > 0) {
+    throw new Error(loaded[0]?.error ?? "Club Locker could not be reached");
+  }
+  const reports: TournamentReport[] = loaded.map((item) =>
+    item.draws
+      ? {
+          id: item.id,
+          info: item.draws.info,
+          check: checkTournament(item.draws, config.rosterIds, config.timeZone),
+        }
+      : {
+          id: item.id,
+          info: null,
+          check: {
+            state: "error" as const,
+            message: item.error ?? "Club Locker could not be reached",
+            playersFound: 0,
+            matches: 0,
+          },
+        },
+  );
+  const feed = config.rosterIds.size
+    ? drawsToFeed(good, config.rosterIds, config.timeZone)
+    : { matches: [], players: [] };
+  return { feed, reports };
 }

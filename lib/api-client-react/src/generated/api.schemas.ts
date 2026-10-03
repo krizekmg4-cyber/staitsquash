@@ -114,6 +114,15 @@ export const MatchCoachMode = {
   virtual: 'virtual',
 } as const;
 
+/**
+ * Set when Club Locker changed the time or court of an upcoming match.
+ */
+export type MatchMoved = {
+  at: string;
+  fromStartsAt: string;
+  fromCourt: string;
+};
+
 export type MatchStatus = typeof MatchStatus[keyof typeof MatchStatus];
 
 
@@ -135,6 +144,10 @@ export interface Match {
   coachId: string;
   /** Whether the coach is at the event or watching remotely. Absent means in-person. */
   coachMode?: MatchCoachMode;
+  /** Both sides of this match are followed players. */
+  teammates?: boolean;
+  /** Set when Club Locker changed the time or court of an upcoming match. */
+  moved?: MatchMoved;
   status: MatchStatus;
   /** @nullable */
   result?: string | null;
