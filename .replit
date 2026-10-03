@@ -80,7 +80,7 @@ defaultBucketID = "replit-objstore-bac4d0fc-05b8-4757-af5e-c4260132e76b"
 [userenv.shared]
 CLUB_LOCKER_TOURNAMENT_IDS = "19515"
 CLUB_LOCKER_PLAYER_IDS = "527745,551079,450879,465422,559727,542444"
-STAFF_CLERK_USER_IDS = "user_3JsfBWuciuyLdvzsRmwzdVk5GLr,user_3JVm5QwwlINIssV6Uv4MxwSOgZa,user_3K9rofu8i8Lkcx9tKYGtUSCTYfn"
+STAFF_CLERK_USER_IDS = "user_3JsfBWuciuyLdvzsRmwzdVk5GLr,user_3JVm5QwwlINIssV6Uv4MxwSOgZa,user_3K9rofu8i8Lkcx9tKYGtUSCTYfn,user_3KBnsLlPEytHupYVp7uuRBfuoH2"
 
 [[ports]]
 localPort = 8080
