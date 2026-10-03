@@ -37,6 +37,7 @@ import {
 import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-react';
 import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
+import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -123,15 +124,19 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
 }
 
 function FailureState({ retry }: { retry: () => void }) {
+  const [copied, setCopied] = useState(false);
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-accent/20 text-accent">
         <AlertCircle size={28} />
       </div>
       <h2 className="mt-5 font-serif text-3xl font-bold tracking-tight">The locker room is offline.</h2>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">We couldn't read today's draw. Try again before heading to court.</p>
-      <button data-testid="button-error-retry" onClick={retry} className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold transition-colors hover:bg-muted">
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">We couldn't read today's draw. Check your connection and try again before heading to court.</p>
+      <button data-testid="button-error-retry" onClick={retry} className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold transition-colors hover:bg-muted">
         <RefreshCw size={16} /> Try again
+      </button>
+      <button data-testid="button-error-copy" onClick={() => { void copyText(problemDetails({ note: 'The board would not load.' })).then(setCopied); }} className="mt-3 min-h-11 text-xs font-semibold text-muted-foreground underline">
+        {copied ? 'Copied. Paste it into a message.' : 'Copy problem details'}
       </button>
     </div>
   );
@@ -155,6 +160,7 @@ function NotApprovedState() {
 
 function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void }) {
   const { signOut } = useClerk();
+  const now = useNow();
   return (
     <header className="border-b border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-8">
@@ -171,11 +177,11 @@ function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerSt
         <div className="flex items-center gap-2"><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
           <RefreshCw size={14} className={cx(refreshing && 'animate-spin')} />
           <span className="hidden sm:inline">{refreshing ? 'Updating' : 'Refresh draw'}</span>
-        </button><button type="button" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent">Sign out</button></div>
+        </button><button type="button" onClick={() => { clearCachedBoard(); void signOut({ redirectUrl: basePath || '/' }); }} className="rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent">Sign out</button></div>
       </div>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 pb-4 sm:px-8">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-foreground/50">
-          {state.source === 'club-locker' ? 'Club Locker' : 'Sample draw'} <span className="mx-1 text-sidebar-primary">·</span> updated {formatTime(state.lastUpdatedAt)}
+          {state.source === 'club-locker' ? 'Club Locker' : 'Sample draw'} <span className="mx-1 text-sidebar-primary">·</span> updated {formatTime(state.lastUpdatedAt)} <span data-testid="updated-ago" className="normal-case tracking-normal">({relativeAgo(state.lastUpdatedAt, now)})</span>
         </p>
         <div className="flex -space-x-2">
           {state.players.slice(0, 3).map((player) => (
@@ -193,7 +199,7 @@ function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players
   const upcoming = matches.filter((match) => match.status === 'upcoming').length;
   const reports = matches.filter((match) => match.report).length;
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+    <div className="hidden grid-cols-3 gap-2 sm:grid sm:gap-3">
       <div data-testid="stat-players" className="rounded-2xl border border-card-border bg-card p-3 shadow-sm sm:p-4">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Players</p>
         <p className="mt-2 font-serif text-2xl font-bold">{players.length}</p>
@@ -227,12 +233,13 @@ function ConflictNotice({ matches, players, coaches }: { matches: Match[]; playe
   const coach = coaches.find((item) => item.id === conflicts[0].first.coachId);
   const firstPlayer = players.find((item) => item.id === conflicts[0].first.playerId);
   const secondPlayer = players.find((item) => item.id === conflicts[0].second.playerId);
+  const more = conflicts.length - 1;
   return (
-    <div data-testid="notice-conflict" className="mt-5 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-primary">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent"><AlertCircle size={17} /></div>
+    <div data-testid="notice-conflict" className="mt-3 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-primary sm:mt-5 sm:p-4">
+      <div className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent sm:flex"><AlertCircle size={17} /></div>
       <div className="min-w-0">
-        <p className="text-sm font-bold">Coach overlap detected</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'Assigned coach'} is scheduled with {firstPlayer?.name} and {secondPlayer?.name} at overlapping times. Reassign one from its match card.</p>
+        <p className="text-sm font-bold">Coach overlap</p>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'A coach'} has two kids at the same time: {firstPlayer?.name} and {secondPlayer?.name}{more > 0 ? `, and ${more} more ${more === 1 ? 'clash' : 'clashes'}` : ''}. Change one from its row.</p>
       </div>
     </div>
   );
@@ -554,6 +561,42 @@ function Modal({ title, eyebrow, onClose, closeDisabled = false, children }: { t
   );
 }
 
+function HelpAndBackup({ state }: { state: TrackerState }) {
+  const [message, setMessage] = useState('');
+  const copyDetails = async () => {
+    let setupLines: string[] = [];
+    try {
+      const response = await fetch('/api/tracker/setup');
+      if (response.ok) {
+        const view = await response.json() as { tournaments: Array<{ id: string; name: string | null; dates: string | null; check: { message: string } | null }> };
+        setupLines = view.tournaments.map((tournament) => `${tournament.name ?? 'Tournament'} (#${tournament.id}) ${tournament.dates ?? ''}: ${tournament.check?.message ?? 'not checked yet'}`);
+      }
+    } catch { /* the details are still useful without the tournament lines */ }
+    const copied = await copyText(problemDetails({ state, setupLines }));
+    setMessage(copied ? 'Copied. Paste it into a message to whoever is helping you.' : 'Could not copy. Take a screenshot of this page instead.');
+  };
+  const backup = async () => {
+    try {
+      const response = await fetch('/api/tracker');
+      if (!response.ok) throw new Error('backup failed');
+      downloadJson(`staitsquash-backup-${new Date().toISOString().slice(0, 10)}.json`, await response.json());
+      setMessage('Backup downloaded. It contains the private player links, so keep the file private.');
+    } catch {
+      setMessage('Could not make a backup right now. Try again in a moment.');
+    }
+  };
+  return (
+    <section data-testid="help-and-backup" className="mt-6 border-t border-border pt-5">
+      <p className="field-label mb-2">Help and backup</p>
+      <div className="flex flex-wrap gap-2">
+        <button data-testid="button-copy-details" type="button" onClick={() => { void copyDetails(); }} className="min-h-11 rounded-xl border border-border px-4 text-sm font-bold hover:bg-muted">Copy problem details</button>
+        <button data-testid="button-backup" type="button" onClick={() => { void backup(); }} className="min-h-11 rounded-xl border border-border px-4 text-sm font-bold hover:bg-muted">Download backup</button>
+      </div>
+      <p className="mt-2 min-h-4 text-[11px] text-muted-foreground" aria-live="polite">{message || 'If something looks wrong, copy the details and send them. A backup saves every match, coach and report to your device.'}</p>
+    </section>
+  );
+}
+
 function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPlayerId, saving, onSetupSaved }: { state: TrackerState; onSetupSaved: () => void; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => Promise<void>; onRotateShareLink: (player: Player) => void; rotatingPlayerId: string | null; saving: boolean }) {
   const [coaches, setCoaches] = useState(state.coaches.filter((coach) => !isSystemCoach(coach.id)));
   const [brandName, setBrandName] = useState(state.branding.name);
@@ -647,6 +690,7 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
           <p className="mt-2 text-[11px] text-muted-foreground">Resetting a link immediately disables the old one.</p>
         </section>
       </div>
+      <HelpAndBackup state={state} />
       <button data-testid="button-save-settings" disabled={saving || uploading || !brandName.trim() || coaches.some((item) => !item.name.trim())} onClick={() => { void save().catch(() => undefined); }} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving…' : 'Save settings'}</button>
     </Modal>
   );
@@ -688,7 +732,14 @@ function TrackerPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const state = tracker.data;
+  const cachedBoard = useMemo(() => readCachedBoard(), []);
+  const noConnection = tracker.isError && tracker.error?.status !== 401 && tracker.error?.status !== 403;
+  const state = tracker.data ?? (noConnection ? cachedBoard ?? undefined : undefined);
+  const offline = !tracker.data && noConnection && Boolean(state);
+  const now = useNow();
+  useEffect(() => {
+    if (tracker.data) cacheBoard(tracker.data);
+  }, [tracker.data]);
   useEffect(() => {
     if (!trackerHealth.data) return;
     queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) =>
@@ -762,8 +813,9 @@ function TrackerPage() {
 
   if (tracker.isLoading) return <TrackerSkeleton />;
   if (tracker.isError && tracker.error?.status === 403) return <NotApprovedState />;
-  if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
+  if (tracker.isError && !state) return <FailureState retry={() => tracker.refetch()} />;
   if (!state || !state.matches.length) return <EmptyState onRefresh={doRefresh} />;
+  const stale = !offline && eventIsActive(state.matches, now) && now - Date.parse(state.lastUpdatedAt) > 15 * 60_000;
 
   const coachName = (coachId: string) => state.coaches.find((coach) => coach.id === coachId)?.name ?? '';
   const filteredMatches = view !== 'coaches'
@@ -774,6 +826,18 @@ function TrackerPage() {
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
       <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
+      {offline && (
+        <div data-testid="banner-offline" role="status" className="border-b border-accent/40 bg-accent/10 px-4 py-2 text-center text-xs font-bold text-primary">
+          No connection. Showing the board from {formatTime(state.lastUpdatedAt)}. It will update when you are back online.
+          <button type="button" onClick={() => { void tracker.refetch(); }} className="ml-2 min-h-8 underline">Try again</button>
+        </div>
+      )}
+      {stale && (
+        <div data-testid="banner-stale" role="status" className="border-b border-accent/40 bg-accent/10 px-4 py-2 text-center text-xs font-bold text-primary">
+          Last updated {relativeAgo(state.lastUpdatedAt, now)}. Tap refresh before you rely on times.
+          <button type="button" onClick={() => doRefresh()} className="ml-2 min-h-8 underline">Refresh now</button>
+        </div>
+      )}
       <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
         {(refreshError || persistedRefreshFailures > 0) && (
           <div data-testid="notice-refresh-error" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm">
@@ -810,15 +874,18 @@ function TrackerPage() {
             <Clock3 size={15} className="text-accent" /> Live draw view
           </div>
         </div>
-        <div className="rise-in delay-1 mt-2 sm:mt-7"><SummaryStrip matches={matches} players={state.players} coaches={state.coaches} /></div>
+        <div className="rise-in delay-1 mt-3 sm:mt-7">
+          <p data-testid="phone-summary" className="font-mono text-[11px] font-bold uppercase tracking-[.12em] text-muted-foreground sm:hidden">{matches.filter((match) => match.status === 'upcoming').length} on deck · {state.players.length} players</p>
+          <SummaryStrip matches={matches} players={state.players} coaches={state.coaches} />
+        </div>
         <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
-            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
-            <button data-testid="tab-players" onClick={() => setView('players')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
-            <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('rounded-lg px-4 py-2 text-xs font-bold transition-colors', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
+            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
+            <button data-testid="tab-players" onClick={() => setView('players')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
+            <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
           </div>
-          <span className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
+          <span className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground sm:inline">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
         </div>
         {view === 'next' && (
           <div data-testid="my-matches" className="mt-4 flex gap-2 overflow-x-auto pb-1">
