@@ -643,3 +643,79 @@ describe('weekly setup in Settings', () => {
     expect(await screen.findByTestId('followed-players')).toHaveTextContent('Casper Chen');
   });
 });
+
+describe('resilience: stale data, no connection, problem details, backup', () => {
+  let board: typeof tracker;
+  let mode: 'ok' | 'down';
+  let downloaded: unknown;
+
+  const isoMinutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+
+  beforeEach(() => {
+    signedIn = true;
+    mode = 'ok';
+    downloaded = null;
+    window.localStorage.clear();
+    const base = tracker.matches[0];
+    board = {
+      ...tracker,
+      matches: [{ ...base, startsAt: isoMinutesFromNow(60), endsAt: isoMinutesFromNow(105) }],
+      lastUpdatedAt: isoMinutesFromNow(-40),
+    } as typeof tracker;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
+      if (url.endsWith('/api/tracker/setup')) return Response.json({
+        tournaments: [{ id: '19518', name: 'Arlen Silver', dates: 'Oct 3-4', check: { message: 'The draw is posted.' } }],
+        followedPlayers: [],
+      });
+      if (url.endsWith('/api/tracker') && (!init?.method || init.method === 'GET')) {
+        return mode === 'ok' ? Response.json(board) : Response.json({ error: 'down' }, { status: 503 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }));
+    HTMLAnchorElement.prototype.click = function click() { downloaded = this.download; };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('warns when the board is stale during an event, and shows how long ago it updated', async () => {
+    render(<App />);
+    expect(await screen.findByTestId('banner-stale')).toHaveTextContent('Last updated 40 min ago');
+    expect(screen.getByTestId('updated-ago')).toHaveTextContent('40 min ago');
+  });
+
+  it('does not warn when the board is fresh', async () => {
+    board = { ...board, lastUpdatedAt: isoMinutesFromNow(-2) } as typeof tracker;
+    render(<App />);
+    await screen.findByTestId('updated-ago');
+    expect(screen.queryByTestId('banner-stale')).not.toBeInTheDocument();
+  });
+
+  it('keeps showing the last board when the connection drops', async () => {
+    const first = render(<App />);
+    await screen.findByTestId('row-next-player-1');
+    first.unmount();
+    mode = 'down';
+    render(<App />);
+    expect(await screen.findByTestId('banner-offline', undefined, { timeout: 15000 })).toHaveTextContent('No connection');
+    expect(screen.getByTestId('row-next-player-1')).toBeInTheDocument();
+  }, 25000);
+
+  it('copies problem details and downloads a backup from Settings', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    fireEvent.click(await screen.findByTestId('button-copy-details'));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const text = String((writeText.mock.calls[0] as unknown[])[0]);
+    expect(text).toContain('StaitSquash problem details');
+    expect(text).toContain('Arlen Silver (#19518) Oct 3-4: The draw is posted.');
+    fireEvent.click(screen.getByTestId('button-backup'));
+    await waitFor(() => expect(String(downloaded)).toMatch(/^staitsquash-backup-\d{4}-\d{2}-\d{2}\.json$/));
+  });
+});
