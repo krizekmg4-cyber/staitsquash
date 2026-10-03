@@ -467,7 +467,7 @@ describe('match desk fixes', () => {
     expect(savedCoaches?.[1]?.id).not.toBe('coach-2');
   });
 
-  it('does not report unassigned matches as a coach overlap and counts filed reports', async () => {
+  it('counts filed reports on the match desk', async () => {
     const overlapping = {
       ...tracker.matches[0],
       coachId: 'unassigned',
@@ -492,7 +492,6 @@ describe('match desk fixes', () => {
     render(<App />);
     fireEvent.click(await screen.findByTestId('tab-players'));
     await screen.findByTestId('card-match-match-a');
-    expect(screen.queryByTestId('notice-conflict')).not.toBeInTheDocument();
     expect(screen.getByTestId('stat-coaches')).toHaveTextContent('0 reports filed');
   });
 
@@ -717,5 +716,22 @@ describe('resilience: stale data, no connection, problem details, backup', () =>
     expect(text).toContain('Arlen Silver (#19518) Oct 3-4: The draw is posted.');
     fireEvent.click(screen.getByTestId('button-backup'));
     await waitFor(() => expect(String(downloaded)).toMatch(/^staitsquash-backup-\d{4}-\d{2}-\d{2}\.json$/));
+  });
+
+  it('shows a coach change made on another device without reloading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<App />);
+      const select = await screen.findByTestId('select-assign-match-1') as HTMLSelectElement;
+      expect(select.value).toBe('coach-1');
+      board = {
+        ...board,
+        matches: board.matches.map((match) => ({ ...match, coachId: 'coach-2' })),
+      } as typeof tracker;
+      await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+      await waitFor(() => expect((screen.getByTestId('select-assign-match-1') as HTMLSelectElement).value).toBe('coach-2'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

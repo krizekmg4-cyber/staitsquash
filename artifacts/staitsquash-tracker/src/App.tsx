@@ -67,10 +67,6 @@ const movedNote = (match: Match, now = Date.now()) => {
   if (match.moved.fromCourt !== match.court) parts.push(`was ${match.moved.fromCourt}`);
   return parts.length ? `Moved · ${parts.join(' · ')}` : null;
 };
-const startsSoon = (match: Match, now = Date.now()) => {
-  const minutes = Math.round((Date.parse(match.startsAt) - now) / 60_000);
-  return minutes >= -10 && minutes <= 30 ? minutes : null;
-};
 
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
 
@@ -219,32 +215,6 @@ function SummaryStrip({ matches, players, coaches }: { matches: Match[]; players
   );
 }
 
-function ConflictNotice({ matches, players, coaches }: { matches: Match[]; players: Player[]; coaches: Coach[] }) {
-  const conflicts = useMemo(() => {
-    const sorted = [...matches].filter((match) => match.status === 'upcoming').sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
-    const output: Array<{ first: Match; second: Match }> = [];
-    sorted.forEach((first, index) => sorted.slice(index + 1).forEach((second) => {
-      const overlaps = new Date(second.startsAt) < new Date(first.endsAt) && new Date(second.endsAt) > new Date(first.startsAt);
-      if (overlaps && !isSystemCoach(first.coachId) && first.coachId === second.coachId) output.push({ first, second });
-    }));
-    return output;
-  }, [matches]);
-  if (!conflicts.length) return null;
-  const coach = coaches.find((item) => item.id === conflicts[0].first.coachId);
-  const firstPlayer = players.find((item) => item.id === conflicts[0].first.playerId);
-  const secondPlayer = players.find((item) => item.id === conflicts[0].second.playerId);
-  const more = conflicts.length - 1;
-  return (
-    <div data-testid="notice-conflict" className="mt-3 flex gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-primary sm:mt-5 sm:p-4">
-      <div className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/20 text-accent sm:flex"><AlertCircle size={17} /></div>
-      <div className="min-w-0">
-        <p className="text-sm font-bold">Coach overlap</p>
-        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{coach?.name ?? 'A coach'} has two kids at the same time: {firstPlayer?.name} and {secondPlayer?.name}{more > 0 ? `, and ${more} more ${more === 1 ? 'clash' : 'clashes'}` : ''}. Change one from its row.</p>
-      </div>
-    </div>
-  );
-}
-
 type CoachPatch = { coachId?: string; coachMode?: 'in-person' | 'virtual' };
 
 function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, filterCoachId }: { matches: Match[]; players: Player[]; coaches: Coach[]; onAssign: (match: Match, patch: CoachPatch) => void; savingMatchId: string | null; filterCoachId: string | null }) {
@@ -279,10 +249,9 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, fi
             const notCoaching = next!.coachId === 'not-coaching';
             const virtual = next!.coachMode === 'virtual';
             const moved = movedNote(next!);
-            const soon = startsSoon(next!);
-            const tagged = Boolean(moved || next!.teammates || soon !== null);
+            const tagged = Boolean(moved || next!.teammates);
             return (
-              <div key={player.id} data-testid={`row-next-${player.id}`} className={cx('grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-b-0 md:items-center', columns, soon !== null && 'bg-accent/5')}>
+              <div key={player.id} data-testid={`row-next-${player.id}`} className={cx('grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-b-0 md:items-center', columns)}>
                 <p className="min-w-0 truncate text-base font-bold md:text-sm">{player.name}</p>
                 <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
                 <p className="col-span-2 truncate text-sm md:hidden"><span className="font-semibold">{next!.court}</span> <span className="text-muted-foreground">· vs {next!.opponent}</span></p>
@@ -291,7 +260,6 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, fi
                 <p className="hidden truncate text-sm md:block">vs {next!.opponent}</p>
                 {tagged && (
                   <div className="col-span-2 flex flex-wrap gap-1.5 md:col-span-6">
-                    {soon !== null && <span data-testid={`tag-soon-${next!.id}`} className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-bold text-accent-foreground">{soon <= 0 ? 'Starting now' : `Starts in ${soon} min`}</span>}
                     {moved && <span data-testid={`tag-moved-${next!.id}`} className="rounded-full border border-accent px-2.5 py-1 text-[11px] font-bold text-accent">{moved}</span>}
                     {next!.teammates && <span data-testid={`tag-teammates-${next!.id}`} className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">vs StaitSquash</span>}
                   </div>
@@ -701,7 +669,10 @@ function TrackerPage() {
   const tracker = useGetTracker({
     query: {
       queryKey: getGetTrackerQueryKey(),
-      staleTime: 30000,
+      staleTime: 5000,
+      // Coaches see Alex's changes within seconds, without reloading.
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
       retry: (failureCount, error) => error.status !== 401 && error.status !== 403 && failureCount < 3,
     },
   });
@@ -878,7 +849,6 @@ function TrackerPage() {
           <p data-testid="phone-summary" className="font-mono text-[11px] font-bold uppercase tracking-[.12em] text-muted-foreground sm:hidden">{matches.filter((match) => match.status === 'upcoming').length} on deck · {state.players.length} players</p>
           <SummaryStrip matches={matches} players={state.players} coaches={state.coaches} />
         </div>
-        <ConflictNotice matches={matches} players={state.players} coaches={state.coaches} />
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
             <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
@@ -932,7 +902,10 @@ function PlayerView() {
   const tracker = useGetPlayerTracker(shareToken, {
     query: {
       queryKey: getGetPlayerTrackerQueryKey(shareToken),
-      staleTime: 30_000,
+      staleTime: 10_000,
+      // A kid or parent sees a coach change within half a minute.
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
       retry: (failureCount, error) => error.status !== 404 && failureCount < 3,
     },
   });
@@ -1013,7 +986,7 @@ function PlayerView() {
                   {isSystemCoach(nextMatch.coachId) ? '?' : getInitials(state.coaches.find((coach) => coach.id === nextMatch.coachId)?.name ?? '?')}
                 </span>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[.14em] text-primary-foreground/50">Your coach</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[.14em] text-primary-foreground/50">Coaching you</p>
                   <p className="text-sm font-bold">{coachLabel(state.coaches.find((coach) => coach.id === nextMatch.coachId), nextMatch)}</p>
                 </div>
               </div>
