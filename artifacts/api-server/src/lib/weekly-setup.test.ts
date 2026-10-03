@@ -67,11 +67,12 @@ test("a setup with tournaments beats the Replit settings, and zones travel with 
   };
   const config = setupToDrawsConfig(setup, { CLUB_LOCKER_TOURNAMENT_IDS: "999", CLUB_LOCKER_PLAYER_IDS: "222" }, new Date("2026-10-03T00:00:00Z"));
   assert.deepEqual(config?.tournamentIds, ["100"]);
-  assert.deepEqual([...(config?.rosterIds ?? [])].sort(), ["111", "222"]);
+  assert.deepEqual([...(config?.rosterIds ?? [])].sort(), ["111"]);
   assert.equal(config?.timeZones?.["100"], "America/Los_Angeles");
 
   const fallback = setupToDrawsConfig(emptySetup(), { CLUB_LOCKER_TOURNAMENT_IDS: "999", CLUB_LOCKER_PLAYER_IDS: "222" });
   assert.deepEqual(fallback?.tournamentIds, ["999"]);
+  assert.deepEqual([...(fallback?.rosterIds ?? [])], ["222"]);
   assert.equal(setupToDrawsConfig(emptySetup(), {}), null);
 });
 

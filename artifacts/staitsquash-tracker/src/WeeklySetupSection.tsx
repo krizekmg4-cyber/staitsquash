@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
-import type { Coach } from '@workspace/api-client-react';
+import type { Coach, Match, Player } from '@workspace/api-client-react';
 
 type TournamentCheck = {
   state: 'ready' | 'no-draw' | 'no-players' | 'error';
@@ -54,7 +54,7 @@ const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boo
 const statusTone = (state: TournamentCheck['state']) =>
   state === 'ready' ? 'text-primary' : state === 'no-draw' ? 'text-muted-foreground' : 'text-destructive';
 
-export function WeeklySetupSection({ coaches, onSaved }: { coaches: Coach[]; onSaved: () => void }) {
+export function WeeklySetupSection({ coaches, players, matches, onSaved }: { coaches: Coach[]; players: Player[]; matches: Match[]; onSaved: () => void }) {
   const [setup, setSetup] = useState<SetupView | null>(null);
   const [loadError, setLoadError] = useState('');
   const [note, setNote] = useState('');
@@ -72,6 +72,7 @@ export function WeeklySetupSection({ coaches, onSaved }: { coaches: Coach[]; onS
   const [drawMessage, setDrawMessage] = useState('');
   const [manualId, setManualId] = useState('');
   const noteTimer = useRef<number | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   const realCoaches = coaches.filter((coach) => coach.id !== 'unassigned' && coach.id !== 'not-coaching');
 
@@ -184,6 +185,19 @@ export function WeeklySetupSection({ coaches, onSaved }: { coaches: Coach[]; onS
     void persist([...setup.tournaments, candidate], setup.followedPlayers.map((player) => player.id), 'Tournament added');
     setCandidate(null);
     setInput('');
+  };
+
+  const removeFromBoard = async (id: string) => {
+    try {
+      await call<unknown>(`/tracker/players/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setConfirmRemoveId(null);
+      const next = await call<SetupView>('/tracker/setup');
+      setSetup(next);
+      flash('Removed from the board');
+      onSaved();
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'Could not remove');
+    }
   };
 
   const removeTournament = (id: string) => {
@@ -356,6 +370,38 @@ export function WeeklySetupSection({ coaches, onSaved }: { coaches: Coach[]; onS
           <input data-testid="input-manual-id" className="field min-h-11 flex-1" inputMode="numeric" value={manualId} onChange={(event) => setManualId(event.target.value.replace(/\D/g, ''))} placeholder="Or add by US Squash ID" />
           <button type="button" disabled={!manualId} onClick={() => { addPlayer(manualId); setManualId(''); }} className="min-h-11 rounded-xl border border-border px-4 text-sm font-bold hover:bg-muted disabled:opacity-50">Add</button>
         </div>
+      </div>
+
+      <div data-testid="board-kids" className="space-y-2">
+        <p className="field-label">Kids on the board</p>
+        <p className="text-[11px] leading-5 text-muted-foreground">Remove a kid to clear them, their matches and their coach reports from the board. Use it to start fresh. This cannot be undone.</p>
+        {players.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No kids on the board yet.</p>
+        ) : (
+          <ul className="divide-y divide-border rounded-xl border border-border">
+            {players.map((player) => {
+              const theirs = matches.filter((match) => match.playerId === player.id);
+              const reports = theirs.filter((match) => match.report).length;
+              return (
+                <li key={player.id} data-testid={`board-kid-${player.id}`} className="px-3 py-2">
+                  <div className="flex min-h-9 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm font-semibold">{player.name} <span className="text-[11px] font-normal text-muted-foreground">{theirs.length} {theirs.length === 1 ? 'match' : 'matches'}</span></span>
+                    <button type="button" data-testid={`remove-kid-${player.id}`} onClick={() => setConfirmRemoveId(player.id)} className="min-h-9 shrink-0 rounded-lg px-3 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>
+                  </div>
+                  {confirmRemoveId === player.id && (
+                    <div className="mt-2 rounded-lg bg-destructive/10 p-3">
+                      <p className="text-xs font-semibold">Remove {player.name}, {theirs.length} {theirs.length === 1 ? 'match' : 'matches'} and {reports} coach {reports === 1 ? 'report' : 'reports'} from the board?</p>
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" data-testid={`confirm-remove-kid-${player.id}`} onClick={() => void removeFromBoard(player.id)} className="min-h-11 rounded-xl bg-destructive px-4 text-sm font-bold text-destructive-foreground">Yes, remove</button>
+                        <button type="button" onClick={() => setConfirmRemoveId(null)} className="min-h-11 rounded-xl border border-border px-4 text-sm font-semibold">Keep</button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <p data-testid="setup-note" aria-live="polite" className="min-h-4 text-xs font-semibold text-primary">{note}</p>
