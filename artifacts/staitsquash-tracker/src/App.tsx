@@ -36,6 +36,7 @@ import {
 } from '@workspace/api-client-react';
 import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-react';
 import { type ReactNode, useEffect } from 'react';
+import { WeeklySetupSection } from './WeeklySetupSection';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -553,7 +554,7 @@ function Modal({ title, eyebrow, onClose, closeDisabled = false, children }: { t
   );
 }
 
-function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPlayerId, saving }: { state: TrackerState; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => Promise<void>; onRotateShareLink: (player: Player) => void; rotatingPlayerId: string | null; saving: boolean }) {
+function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPlayerId, saving, onSetupSaved }: { state: TrackerState; onSetupSaved: () => void; onClose: () => void; onSave: (data: { coaches: Coach[]; branding: { name: string; logoPath: string | null } }) => Promise<void>; onRotateShareLink: (player: Player) => void; rotatingPlayerId: string | null; saving: boolean }) {
   const [coaches, setCoaches] = useState(state.coaches.filter((coach) => !isSystemCoach(coach.id)));
   const [brandName, setBrandName] = useState(state.branding.name);
   const [logoPath, setLogoPath] = useState(state.branding.logoPath);
@@ -629,7 +630,8 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
     }
   };
   return (
-    <Modal title="Tracker settings" eyebrow="Players, coaches & branding" onClose={onClose} closeDisabled={saving || uploading}>
+    <Modal title="Tracker settings" eyebrow="This week, coaches & branding" onClose={onClose} closeDisabled={saving || uploading}>
+      <div className="mb-6 border-b border-border pb-6"><WeeklySetupSection coaches={state.coaches} onSaved={onSetupSaved} /></div>
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
         <div><span className="field-label">Logo image</span><div className="mt-2 flex items-center gap-3">{logoPath && <img src={logoSrc(logoPath)!} alt="Logo preview" className="h-16 w-24 rounded-xl border border-border bg-white object-contain p-2" />}<div className="flex flex-wrap gap-2"><label className="cursor-pointer rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold hover:bg-muted"><input data-testid="input-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLogo(file); event.currentTarget.value = ''; }} />{uploading ? 'Uploading…' : logoPath ? 'Replace logo' : 'Upload logo'}</label>{logoPath && <button data-testid="button-remove-logo" type="button" onClick={removeLogo} className="rounded-xl px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive/10">Remove</button>}</div></div><span className="mt-2 block text-[11px] text-muted-foreground">PNG, JPG, WebP, or GIF. Maximum 5 MB.</span>{logoError && <span role="alert" className="mt-2 block text-xs text-destructive">{logoError}</span>}</div>
@@ -840,7 +842,7 @@ function TrackerPage() {
       {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
       {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
-      {settingsOpen && <SettingsEditor state={state} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
+      {settingsOpen && <SettingsEditor state={state} onSetupSaved={() => { void queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() }); }} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>
   );

@@ -567,3 +567,79 @@ describe('match desk fixes', () => {
     expect(screen.getByTestId('row-next-player-2')).toBeInTheDocument();
   });
 });
+
+describe('weekly setup in Settings', () => {
+  type PutBody = { tournaments: Array<Record<string, unknown>>; followedPlayerIds: string[] };
+  let puts: PutBody[];
+  let view: { tournaments: Array<Record<string, unknown>>; followedPlayers: Array<{ id: string; name: string | null }> };
+
+  beforeEach(() => {
+    signedIn = true;
+    puts = [];
+    view = { tournaments: [], followedPlayers: [] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const json = (value: unknown, status = 200) => Response.json(value, { status });
+      if (url.endsWith('/api/tracker/health')) return json(initialHealth);
+      if (url.endsWith('/api/tracker') && (!init?.method || init.method === 'GET')) {
+        return json({ ...tracker, coaches: [...tracker.coaches, { id: 'unassigned', name: 'Unassigned' }, { id: 'not-coaching', name: 'Not coaching' }] });
+      }
+      if (url.endsWith('/api/tracker/setup') && (!init?.method || init.method === 'GET')) return json(view);
+      if (url.endsWith('/api/tracker/setup') && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as PutBody;
+        puts.push(body);
+        view = {
+          tournaments: body.tournaments,
+          followedPlayers: body.followedPlayerIds.map((id) => ({ id, name: id === '111' ? 'Casper Chen' : null })),
+        };
+        return json(view);
+      }
+      if (url.endsWith('/api/tracker/setup/check') && init?.method === 'POST') {
+        const { ref } = JSON.parse(String(init.body)) as { ref: string };
+        if (ref.includes('77777777')) return json({ error: 'Club Locker has no tournament numbered 77777777. Check the number or link.' }, 422);
+        return json({
+          id: '19518', name: '2026 Arlen Specter Center Junior Silver', dates: 'Oct 3-4', city: 'Philadelphia',
+          timeZone: 'America/New_York', endsOn: '2026-10-04',
+          check: { state: 'ready', message: 'The draw is posted. 1 of your players found, 3 matches scheduled.', playersFound: 1, matches: 3, checkedAt: '2026-10-02T12:00:00.000Z' },
+        });
+      }
+      if (url.includes('/api/tracker/setup/players')) {
+        return json({ drawPosted: true, total: 2, players: [{ id: '111', name: 'Casper Chen' }] });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('adds a tournament from a pasted link, sets its coach and follows a kid by name', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-settings'));
+    const box = await screen.findByTestId('input-find-tournament');
+
+    fireEvent.change(box, { target: { value: 'https://www.clublocker.com/tournaments/77777777' } });
+    fireEvent.click(screen.getByTestId('button-find-tournament'));
+    expect(await screen.findByTestId('find-error')).toHaveTextContent('no tournament numbered 77777777');
+
+    fireEvent.change(box, { target: { value: 'https://www.clublocker.com/tournaments/19518' } });
+    fireEvent.click(screen.getByTestId('button-find-tournament'));
+    expect(await screen.findByTestId('candidate')).toHaveTextContent('Oct 3-4 · Philadelphia · Eastern');
+    fireEvent.click(screen.getByTestId('button-add-tournament'));
+
+    expect(await screen.findByTestId('tournament-19518')).toBeInTheDocument();
+    expect(puts[0]?.tournaments[0]).toMatchObject({ id: '19518', coachId: 'unassigned', coachMode: 'in-person' });
+    expect(screen.getByTestId('status-19518')).toHaveTextContent('1 of your players found');
+
+    fireEvent.change(screen.getByTestId('coach-19518'), { target: { value: 'coach-1' } });
+    await waitFor(() => expect(puts[1]?.tournaments[0]).toMatchObject({ coachId: 'coach-1' }));
+    fireEvent.click(await screen.findByTestId('virtual-19518'));
+    await waitFor(() => expect(puts[2]?.tournaments[0]).toMatchObject({ coachId: 'coach-1', coachMode: 'virtual' }));
+
+    fireEvent.change(screen.getByTestId('input-player-name'), { target: { value: 'chen' } });
+    fireEvent.click(await screen.findByTestId('follow-111'));
+    await waitFor(() => expect(puts.at(-1)?.followedPlayerIds).toEqual(['111']));
+    expect(await screen.findByTestId('followed-players')).toHaveTextContent('Casper Chen');
+  });
+});

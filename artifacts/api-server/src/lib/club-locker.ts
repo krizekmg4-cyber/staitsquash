@@ -557,3 +557,34 @@ export async function refreshTrackerState(
   await persistState(state);
   return state;
 }
+/**
+ * Give a tournament's existing matches its newly chosen coach. Only matches
+ * still on the previous tournament coach (or undecided) follow, so a coach
+ * picked by hand for one kid is left alone, and kids playing each other stay
+ * Not coaching.
+ */
+export function applyTournamentCoach(
+  loadedState: ReadonlyTrackerState,
+  tournamentId: string,
+  next: { coachId: string; coachMode: "in-person" | "virtual" },
+  previousCoachId: string | null,
+): TrackerState {
+  const state = cloneTrackerState(loadedState);
+  const realCoach = next.coachId !== "unassigned" && next.coachId !== "not-coaching";
+  state.matches = state.matches.map((match) => {
+    if (match.status !== "upcoming" || match.teammates) return match;
+    if (match.externalId?.split(":")[0] !== tournamentId) return match;
+    const follows =
+      match.coachId === "unassigned" ||
+      (previousCoachId !== null && match.coachId === previousCoachId);
+    if (!follows) return match;
+    const { coachMode: _drop, ...rest } = match;
+    return {
+      ...rest,
+      coachId: next.coachId,
+      ...(realCoach && next.coachMode === "virtual" ? { coachMode: "virtual" as const } : {}),
+    };
+  });
+  state.lastUpdatedAt = new Date().toISOString();
+  return state;
+}

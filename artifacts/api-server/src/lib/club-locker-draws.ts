@@ -42,6 +42,8 @@ export type TournamentInfo = {
   dates: string | null;
   city: string | null;
   timeZone: string;
+  /** "2026-10-04": the last day of the event, used to tuck old events away. */
+  endsOn: string | null;
 };
 
 export type TournamentCheck = {
@@ -336,7 +338,7 @@ export function timeZoneFromCoordinates(lat: number, lng: number): string | null
   return "America/Los_Angeles";
 }
 
-async function loadTournamentDraws(
+export async function loadTournamentDraws(
   tournamentId: string,
   fetchJson: (path: string) => Promise<unknown>,
   fallbackTimeZone = "America/New_York",
@@ -414,6 +416,7 @@ async function loadTournamentDraws(
       dates: formatTournamentDates(tournament.Start_Date, tournament.End_Date),
       city,
       timeZone,
+      endsOn: /^\d{4}-\d{2}-\d{2}/.exec(text(tournament.End_Date))?.[0] ?? null,
     },
   };
 }
@@ -539,4 +542,73 @@ export async function fetchClubLockerDrawsDetailed(
     ? drawsToFeed(good, config.rosterIds, config.timeZone)
     : { matches: [], players: [] };
   return { feed, reports };
+}
+
+/** Everyone in a tournament's singles draws, so staff can pick their kids by name. */
+export function listTournamentPlayers(
+  draws: TournamentDraws,
+): Array<{ id: string; name: string }> {
+  const found = new Map<string, string>();
+  for (const match of draws.matches) {
+    if (text(match.SinglesDoubles).toLowerCase() === "d") continue;
+    const sides: Array<[string, string]> = [
+      [memberId(match.wid1), text(match.hplayer1)],
+      [memberId(match.oid1), text(match.vplayer1)],
+    ];
+    for (const [id, name] of sides) {
+      if (id && name && !found.has(id)) found.set(id, displayName(name));
+    }
+  }
+  return [...found].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type TournamentSearchHit = {
+  id: string;
+  name: string;
+  dates: string | null;
+  city: string | null;
+  level: string | null;
+};
+
+const LIST_PATH = "tournaments?TopRecords=300&ngbId=10000&OrganizerType=1&Sanctioned=1&Status=1&State=0";
+
+/** Search Club Locker's public tournament list by name or city, upcoming events only. */
+export async function searchTournaments(
+  query: string,
+  now: Date = new Date(),
+  fetchJson: (path: string) => Promise<unknown> = getJson,
+): Promise<TournamentSearchHit[]> {
+  const list = await fetchJson(LIST_PATH);
+  if (!Array.isArray(list)) return [];
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const day = 86_400_000;
+  const parse = (value: unknown) => {
+    const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(text(value));
+    return match ? Date.UTC(Number(match[3]), Number(match[1]) - 1, Number(match[2])) : null;
+  };
+  const hits: Array<TournamentSearchHit & { start: number }> = [];
+  for (const item of list as Array<Record<string, unknown>>) {
+    const id = memberId(item.TournamentID);
+    const start = parse(item.StartDate);
+    const end = parse(item.EndDate) ?? start;
+    if (!id || start === null || end === null) continue;
+    if (end < now.getTime() - day || start > now.getTime() + 28 * day) continue;
+    const name = text(item.TournamentName);
+    const city = text(item.SiteCity) || null;
+    const haystack = `${name} ${city ?? ""} ${text(item.EventType)}`.toLowerCase();
+    if (!tokens.every((token) => haystack.includes(token))) continue;
+    const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    hits.push({
+      id,
+      name,
+      dates: formatTournamentDates(iso(start), iso(end)),
+      city,
+      level: text(item.EventType) || null,
+      start,
+    });
+  }
+  return hits
+    .sort((a, b) => a.start - b.start || a.name.localeCompare(b.name))
+    .slice(0, 15)
+    .map(({ start: _start, ...hit }) => hit);
 }
