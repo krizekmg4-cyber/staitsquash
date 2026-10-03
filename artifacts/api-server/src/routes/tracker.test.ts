@@ -2244,7 +2244,7 @@ test("removing a player deletes their matches, stops following them, and 404s fo
     report: null,
   });
   state.matches = [match("m1", "p1"), match("m2", "p1"), match("m3", "p2")];
-  let setup = { tournaments: [], followedPlayerIds: ["p1", "p2"] };
+  let setup = { tournaments: [], followedPlayerIds: ["p1", "p2"], removedPlayerIds: [] as string[] };
   const app = express();
   app.use(express.json());
   app.use(createTrackerRouter({
@@ -2266,6 +2266,7 @@ test("removing a player deletes their matches, stops following them, and 404s fo
     assert.deepEqual(state.players.map((player) => player.id), ["p2"]);
     assert.deepEqual(state.matches.map((item) => item.id), ["m3"]);
     assert.deepEqual(setup.followedPlayerIds, ["p2"]);
+    assert.deepEqual(setup.removedPlayerIds, ["p1"]);
     assert.equal((await fetch(`${base}/tracker/players/nobody`, { method: "DELETE" })).status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

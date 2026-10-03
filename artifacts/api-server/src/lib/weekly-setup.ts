@@ -31,6 +31,8 @@ export type SetupTournament = {
 export type WeeklySetup = {
   tournaments: SetupTournament[];
   followedPlayerIds: string[];
+  /** Kids staff removed from the board; the Replit setting must not bring them back. */
+  removedPlayerIds: string[];
 };
 
 export const US_TIME_ZONES = [
@@ -44,7 +46,7 @@ export const US_TIME_ZONES = [
 /** Events stay on screen this long after their last day, then tuck away. */
 const KEEP_AFTER_EVENT_DAYS = 3;
 
-export const emptySetup = (): WeeklySetup => ({ tournaments: [], followedPlayerIds: [] });
+export const emptySetup = (): WeeklySetup => ({ tournaments: [], followedPlayerIds: [], removedPlayerIds: [] });
 
 /** Accepts a Club Locker link, "tournaments/19518", or just the number. */
 export function parseTournamentRef(input: string): string | null {
@@ -80,7 +82,7 @@ function readCheck(raw: unknown): SetupTournament["check"] {
 /** Read a stored setup row defensively; anything unreadable becomes empty. */
 export function normalizeSetup(raw: unknown): WeeklySetup {
   if (!raw || typeof raw !== "object") return emptySetup();
-  const value = raw as { tournaments?: unknown; followedPlayerIds?: unknown };
+  const value = raw as { tournaments?: unknown; followedPlayerIds?: unknown; removedPlayerIds?: unknown };
   const tournaments: SetupTournament[] = [];
   if (Array.isArray(value.tournaments)) {
     for (const item of value.tournaments as Array<Record<string, unknown>>) {
@@ -105,7 +107,10 @@ export function normalizeSetup(raw: unknown): WeeklySetup {
   const followed = Array.isArray(value.followedPlayerIds)
     ? [...new Set((value.followedPlayerIds as unknown[]).filter(isString).filter((id) => /^\d{1,10}$/.test(id)))]
     : [];
-  return { tournaments, followedPlayerIds: followed };
+  const removed = Array.isArray(value.removedPlayerIds)
+    ? [...new Set((value.removedPlayerIds as unknown[]).filter(isString).filter((id) => /^\d{1,10}$/.test(id)))].filter((id) => !followed.includes(id))
+    : [];
+  return { tournaments, followedPlayerIds: followed, removedPlayerIds: removed };
 }
 
 /**
@@ -127,7 +132,9 @@ export function setupToDrawsConfig(
     // Once tournaments are set up in the app, its own list of kids is the whole
     // roster; the Replit setting is only the starting point before that.
     rosterIds: new Set(
-      active.length ? setup.followedPlayerIds : [...setup.followedPlayerIds, ...list(env["CLUB_LOCKER_PLAYER_IDS"])],
+      (active.length ? setup.followedPlayerIds : [...setup.followedPlayerIds, ...list(env["CLUB_LOCKER_PLAYER_IDS"])]).filter(
+        (id) => !setup.removedPlayerIds.includes(id),
+      ),
     ),
     timeZone: env["CLUB_LOCKER_TIMEZONE"]?.trim() || "America/New_York",
     timeZones: Object.fromEntries(active.map((tournament) => [tournament.id, tournament.timeZone])),
@@ -252,7 +259,11 @@ export function createSetupRouter(dependencies: SetupRouterDependencies): IRoute
     const hidden = previous.tournaments.filter(
       (tournament) => !isActive(tournament, now) && !incoming.some((item) => item.id === tournament.id),
     );
-    const next: WeeklySetup = { tournaments: [...incoming, ...hidden], followedPlayerIds: followed };
+    const next: WeeklySetup = {
+      tournaments: [...incoming, ...hidden],
+      followedPlayerIds: followed,
+      removedPlayerIds: previous.removedPlayerIds.filter((id) => !followed.includes(id)),
+    };
     await dependencies.saveSetup(next);
 
     for (const tournament of incoming) {
