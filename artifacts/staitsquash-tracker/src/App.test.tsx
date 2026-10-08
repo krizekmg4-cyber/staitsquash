@@ -47,6 +47,52 @@ const tracker = {
   branding: { name: 'StaitSquash', logoPath: null },
 };
 
+describe('empty tracker setup access', () => {
+  beforeEach(() => {
+    signedIn = true;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
+      if (url.endsWith('/api/tracker')) return Response.json({
+        ...tracker,
+        players: [],
+        matches: [],
+        refreshHealth: { ...initialHealth, consecutiveFailures: 1 },
+      });
+      if (url.endsWith('/api/tracker/setup')) return Response.json({
+        tournaments: [],
+        followedPlayers: [],
+      });
+      if (url.endsWith('/api/tracker/refresh')) return Response.json({
+        error: 'Refresh failed: No tournaments are set up yet. Add one in Settings, under This week',
+      }, { status: 502 });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps settings reachable when no matches have been imported', async () => {
+    render(<App />);
+    await screen.findByText('The courts are quiet.');
+    expect(screen.getByTestId('button-settings')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-empty-settings'));
+    expect(await screen.findByRole('heading', { name: 'Tracker settings' })).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Or add by US Squash ID')).toBeInTheDocument();
+  });
+
+  it('shows the actual refresh failure on an empty board even with previous failures', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-empty-refresh'));
+    await waitFor(() => expect(screen.getByTestId('notice-refresh-error')).toHaveTextContent(
+      'No tournaments are set up yet',
+    ));
+    expect(screen.getByTestId('button-empty-settings')).toBeInTheDocument();
+  });
+});
+
 describe('tracker health polling', () => {
   let healthResponses: Array<typeof initialHealth>;
 

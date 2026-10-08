@@ -4,3 +4,4 @@
 - [Staff and player experiences](staff-player-experiences.md) — staff manage the tracker; players use a separate read-only, mobile-friendly match and advice view.
 - [Refresh network lock boundaries](refresh-network-lock-boundaries.md) — reserve refresh notification work in short mutations; never hold tracker row locks across third-party calls.
 - [Tracker recovery transactions](tracker-recovery-transactions.md) — lock and revalidate raw state; commit backup, reset, and audit together or roll back all.
+- [Shared declaration freshness](shared-declaration-freshness.md) — source-only Git checkouts can leave consumed library declarations stale; rebuild before diagnosing missing fields.

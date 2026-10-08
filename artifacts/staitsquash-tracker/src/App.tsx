@@ -103,7 +103,7 @@ function TrackerSkeleton() {
   );
 }
 
-function EmptyState({ onRefresh }: { onRefresh: () => void }) {
+function EmptyState({ onRefresh, onSettings, refreshing }: { onRefresh: () => void; onSettings: () => void; refreshing: boolean }) {
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-secondary text-primary">
@@ -111,10 +111,15 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
       </div>
       <p className="mt-5 font-mono text-[11px] uppercase tracking-[.24em] text-muted-foreground">No matches yet</p>
       <h2 className="mt-2 font-serif text-3xl font-bold tracking-tight">The courts are quiet.</h2>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">Refresh the tracker when the draw is ready. Your players and coaches will appear here in match order.</p>
-      <button data-testid="button-empty-refresh" onClick={onRefresh} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground transition-transform hover:-translate-y-0.5">
-        <RefreshCw size={16} /> Refresh tracker
-      </button>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">No scheduled matches have been imported yet. Add your tournament and players in Settings, then refresh. Matches appear once the draw includes their start times.</p>
+      <div className="mt-6 flex flex-wrap justify-center gap-3">
+        <button data-testid="button-empty-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground">
+          <Settings size={16} /> Open settings
+        </button>
+        <button data-testid="button-empty-refresh" onClick={onRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-bold disabled:opacity-60">
+          <RefreshCw size={16} className={cx(refreshing && 'animate-spin')} /> {refreshing ? 'Updating…' : 'Refresh tracker'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -785,7 +790,7 @@ function TrackerPage() {
   if (tracker.isLoading) return <TrackerSkeleton />;
   if (tracker.isError && tracker.error?.status === 403) return <NotApprovedState />;
   if (tracker.isError && !state) return <FailureState retry={() => tracker.refetch()} />;
-  if (!state || !state.matches.length) return <EmptyState onRefresh={doRefresh} />;
+  if (!state) return <FailureState retry={() => tracker.refetch()} />;
   const stale = !offline && eventIsActive(state.matches, now) && now - Date.parse(state.lastUpdatedAt) > 15 * 60_000;
 
   const coachName = (coachId: string) => state.coaches.find((coach) => coach.id === coachId)?.name ?? '';
@@ -796,7 +801,7 @@ function TrackerPage() {
       .sort((a, b) => coachName(a.coachId).localeCompare(coachName(b.coachId)) || +new Date(a.startsAt) - +new Date(b.startsAt));
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
-      <Header state={state} onRefresh={doRefresh} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
+      <Header state={state} onRefresh={() => doRefresh()} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
       {offline && (
         <div data-testid="banner-offline" role="status" className="border-b border-accent/40 bg-accent/10 px-4 py-2 text-center text-xs font-bold text-primary">
           No connection. Showing the board from {formatTime(state.lastUpdatedAt)}. It will update when you are back online.
@@ -821,6 +826,7 @@ function TrackerPage() {
                   : `${refreshError}.`}
                 {' '}Your existing matches, coach assignments, results, and reports are unchanged.
               </p>
+               {persistedRefreshFailures > 0 && refreshError && <p className="mt-2 text-xs leading-5">{refreshError}</p>}
             </div>
           </div>
         )}
@@ -835,6 +841,10 @@ function TrackerPage() {
             </div>
           </div>
         )}
+        {!matches.length ? (
+          <EmptyState onRefresh={() => doRefresh()} onSettings={() => setSettingsOpen(true)} refreshing={refresh.isPending} />
+        ) : (
+          <>
         <div className="rise-in hidden flex-col justify-between gap-4 sm:flex sm:flex-row sm:items-end">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(new Date())} · match desk</p>
@@ -875,6 +885,8 @@ function TrackerPage() {
           <span className="font-mono uppercase tracking-[.16em]">StaitSquash / keep moving</span>
           <span>{matches.filter((match) => match.status === 'completed').length} completed</span>
         </footer>
+          </>
+        )}
       </main>
       {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
