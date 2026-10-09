@@ -2,9 +2,21 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 
+let accessRole: 'staff' | 'coach' = 'staff';
+vi.mock('./lib/tracker-access', () => ({
+  useTrackerAccess: () => ({
+    data: { role: accessRole },
+    isPending: false,
+    isError: false,
+  }),
+}));
+beforeEach(() => { accessRole = 'staff'; });
+vi.mock('./CoachAccessSection', () => ({ default: () => <section>Coach access</section> }));
+
 vi.mock('@clerk/react', () => ({
   ClerkProvider: ({ children }: { children: React.ReactNode }) => children,
   SignIn: () => <div>Sign in form</div>,
+  SignUp: () => <div>Sign up form</div>,
   Show: ({ children, when }: { children: React.ReactNode; when: 'signed-in' | 'signed-out' }) => (
     (when === 'signed-in') === signedIn ? children : null
   ),
@@ -46,6 +58,65 @@ const tracker = {
   refreshHealth: initialHealth,
   branding: { name: 'StaitSquash', logoPath: null },
 };
+
+describe('restricted coach feedback', () => {
+  beforeEach(() => {
+    signedIn = true;
+    accessRole = 'coach';
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows all matches and saves feedback without staff controls', async () => {
+    const board = structuredClone(tracker);
+    const completed = { ...board.matches[0], id: 'completed-1', status: 'completed', coachId: 'coach-2', result: '3–1' };
+    let report: { matchId: string; observations: string[]; transcript: string | null; audioPath: null; updatedAt: string } | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
+      if (url.endsWith('/api/tracker')) return Response.json({
+        ...board, matches: [{ ...completed, report }, board.matches[0]],
+      });
+      if (url.endsWith('/api/matches/completed-1/report') && init?.method === 'PUT') {
+        report = { ...JSON.parse(String(init.body)), matchId: 'completed-1', audioPath: null, updatedAt: new Date().toISOString() };
+        return Response.json(report);
+      }
+      throw new Error(`Coach requested an unexpected endpoint: ${url}`);
+    }));
+    const view = render(<App />);
+    await screen.findByTestId('coach-access-notice');
+    expect(screen.getByTestId('card-match-match-1')).toBeInTheDocument();
+    expect(screen.getByTestId('card-match-completed-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-refresh-tracker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-next')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-edit-match-completed-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-complete-match-1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('button-report-completed-1'));
+    fireEvent.change(screen.getByTestId('input-observation-1'), { target: { value: 'Good movement' } });
+    fireEvent.change(screen.getByTestId('input-observation-2'), { target: { value: 'Watch the backhand' } });
+    fireEvent.change(screen.getByTestId('input-observation-3'), { target: { value: 'Stay patient' } });
+    fireEvent.change(screen.getByTestId('input-transcript'), { target: { value: 'Well played' } });
+    fireEvent.click(screen.getByTestId('button-save-report'));
+    await screen.findByText('Coach report saved');
+    expect(report).toMatchObject({ observations: ['Good movement', 'Watch the backhand', 'Stay patient'] });
+    view.unmount();
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('button-report-completed-1'));
+    expect(screen.getByTestId('input-observation-1')).toHaveValue('Good movement');
+    expect(screen.getByTestId('input-transcript')).toHaveValue('Well played');
+  });
+
+  it('does not offer settings or draw refresh when the coach board is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).endsWith('/api/tracker/health')
+      ? Response.json(initialHealth)
+      : Response.json({ ...tracker, matches: [] })));
+    render(<App />);
+    await screen.findByText('The courts are quiet.');
+    expect(screen.queryByTestId('button-empty-settings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('button-empty-refresh')).not.toBeInTheDocument();
+    expect(screen.getByText(/The match desk manages the draw/)).toBeInTheDocument();
+  });
+});
 
 describe('empty tracker setup access', () => {
   beforeEach(() => {
@@ -363,7 +434,7 @@ describe('tracker logo settings', () => {
     signedIn = false;
     render(<App />);
     expect(screen.getByRole('heading', { name: 'StaitSquash tracker' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Staff sign in' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Staff & coach sign in' })).toBeInTheDocument();
     expect(screen.queryByTestId('button-settings')).not.toBeInTheDocument();
   });
 });

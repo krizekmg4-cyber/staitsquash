@@ -37,13 +37,15 @@ import {
 import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-react';
 import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
+import CoachAccessSection from './CoachAccessSection';
+import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
-import { ClerkProvider, SignIn, Show, useClerk } from '@clerk/react';
+import { ClerkProvider, SignIn, SignUp, Show, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 
@@ -103,7 +105,7 @@ function TrackerSkeleton() {
   );
 }
 
-function EmptyState({ onRefresh, onSettings, refreshing }: { onRefresh: () => void; onSettings: () => void; refreshing: boolean }) {
+function EmptyState({ onRefresh, onSettings, refreshing, canManage = true }: { onRefresh: () => void; onSettings: () => void; refreshing: boolean; canManage?: boolean }) {
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-6 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-secondary text-primary">
@@ -111,15 +113,15 @@ function EmptyState({ onRefresh, onSettings, refreshing }: { onRefresh: () => vo
       </div>
       <p className="mt-5 font-mono text-[11px] uppercase tracking-[.24em] text-muted-foreground">No matches yet</p>
       <h2 className="mt-2 font-serif text-3xl font-bold tracking-tight">The courts are quiet.</h2>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">No scheduled matches have been imported yet. Add your tournament and players in Settings, then refresh. Matches appear once the draw includes their start times.</p>
-      <div className="mt-6 flex flex-wrap justify-center gap-3">
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">{canManage ? 'No scheduled matches have been imported yet. Add your tournament and players in Settings, then refresh. Matches appear once the draw includes their start times.' : 'No scheduled matches have been imported yet. The match desk manages the draw. Matches will appear here automatically once they are available.'}</p>
+      {canManage && <div className="mt-6 flex flex-wrap justify-center gap-3">
         <button data-testid="button-empty-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground">
           <Settings size={16} /> Open settings
         </button>
         <button data-testid="button-empty-refresh" onClick={onRefresh} disabled={refreshing} className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-bold disabled:opacity-60">
           <RefreshCw size={16} className={cx(refreshing && 'animate-spin')} /> {refreshing ? 'Updating…' : 'Refresh tracker'}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -151,7 +153,7 @@ function NotApprovedState() {
         <CircleUserRound size={28} />
       </div>
       <h2 data-testid="heading-not-approved" className="mt-5 font-serif text-3xl font-bold tracking-tight">You're signed in, but not approved yet.</h2>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask the StaitSquash match desk to approve your account for staff access, then reload this page.</p>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">Ask the StaitSquash match desk to approve your account for coach or staff access, then reload this page.</p>
       <button type="button" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="mt-6 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold transition-colors hover:bg-muted">
         Sign out
       </button>
@@ -159,7 +161,7 @@ function NotApprovedState() {
   );
 }
 
-function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void }) {
+function Header({ state, onRefresh, refreshing, onSettings, canManage = true }: { state: TrackerState; onRefresh: () => void; refreshing: boolean; onSettings: () => void; canManage?: boolean }) {
   const { signOut } = useClerk();
   const now = useNow();
   return (
@@ -175,10 +177,10 @@ function Header({ state, onRefresh, refreshing, onSettings }: { state: TrackerSt
             <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker</p>
           </div>
         </div>
-        <div className="flex items-center gap-2"><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
+        <div className="flex items-center gap-2">{canManage && <><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
           <RefreshCw size={14} className={cx(refreshing && 'animate-spin')} />
           <span className="hidden sm:inline">{refreshing ? 'Updating' : 'Refresh draw'}</span>
-        </button><button type="button" onClick={() => { clearCachedBoard(); void signOut({ redirectUrl: basePath || '/' }); }} className="rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent">Sign out</button></div>
+        </button></>}<button type="button" onClick={() => { clearCachedBoard(); void signOut({ redirectUrl: basePath || '/' }); }} className="rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent">Sign out</button></div>
       </div>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 pb-4 sm:px-8">
         <p className="font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-foreground/50">
@@ -314,7 +316,7 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, fi
   );
 }
 
-function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { match: Match; player?: Player; coach?: Coach; onEdit: (match: Match) => void; onComplete: (match: Match) => void; onReport: (match: Match) => void }) {
+function MatchCard({ match, player, coach, onEdit, onComplete, onReport, canManage = true }: { match: Match; player?: Player; coach?: Coach; onEdit: (match: Match) => void; onComplete: (match: Match) => void; onReport: (match: Match) => void; canManage?: boolean }) {
   const isComplete = match.status === 'completed';
   return (
     <article data-testid={`card-match-${match.id}`} className={cx('relative overflow-hidden rounded-2xl border bg-card shadow-sm transition-shadow hover:shadow-md', isComplete ? 'border-card-border' : 'border-primary/15')}>
@@ -330,11 +332,11 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { mat
               <p data-testid={`text-player-${match.id}`} className="truncate text-sm font-bold">{player?.name ?? 'Unassigned player'}</p>
             </div>
           </div>
-          <button data-testid={`button-edit-match-${match.id}`} aria-label={`Edit ${player?.name ?? 'match'} match`} onClick={() => onEdit(match)} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-primary">
+          {canManage && <button data-testid={`button-edit-match-${match.id}`} aria-label={`Edit ${player?.name ?? 'match'} match`} onClick={() => onEdit(match)} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-primary">
             <Edit3 size={16} />
-          </button>
+          </button>}
         </div>
-        <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="mt-5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
           <div>
             <p className="font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">Next court</p>
             <p data-testid={`text-court-${match.id}`} className="mt-1 font-serif text-xl font-bold">{match.court}</p>
@@ -357,11 +359,11 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport }: { mat
               <button data-testid={`button-report-${match.id}`} onClick={() => onReport(match)} className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-[11px] font-bold text-primary transition-colors hover:bg-secondary/80">
                 {match.report ? <Check size={14} /> : <Mic size={14} />} {match.report ? 'View report' : 'Add report'}
               </button>
-            ) : (
+            ) : canManage ? (
               <button data-testid={`button-complete-${match.id}`} onClick={() => onComplete(match)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-[11px] font-bold text-primary-foreground transition-transform hover:-translate-y-0.5">
                 <Trophy size={14} /> Mark complete
               </button>
-            )}
+            ) : <span className="text-[11px] text-muted-foreground">Feedback opens when the match is completed.</span>}
           </div>
         </div>
         {isComplete && match.result && <p data-testid={`text-result-${match.id}`} className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs font-bold text-primary">Result <span className="ml-2 font-mono">{match.result}</span></p>}
@@ -647,6 +649,7 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
   };
   return (
     <Modal title="Tracker settings" eyebrow="This week, coaches & branding" onClose={onClose} closeDisabled={saving || uploading}>
+      <CoachAccessSection />
       <div className="mb-6 border-b border-border pb-6"><WeeklySetupSection coaches={state.coaches} players={state.players} matches={state.matches} onSaved={onSetupSaved} /></div>
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
@@ -669,7 +672,8 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
   );
 }
 
-function TrackerPage() {
+function TrackerPage({ role }: { role: TrackerRole }) {
+  const canManage = role === 'staff';
   const queryClient = useQueryClient();
   const tracker = useGetTracker({
     query: {
@@ -694,7 +698,7 @@ function TrackerPage() {
   const saveSettings = useSaveTrackerSettings();
   const rotateShareToken = useRotatePlayerShareToken();
   const [rotatingPlayerId, setRotatingPlayerId] = useState<string | null>(null);
-  const [view, setView] = useState<ViewMode>('next');
+  const [view, setView] = useState<ViewMode>(canManage ? 'next' : 'players');
   const [editing, setEditing] = useState<Match | null>(null);
   const [completing, setCompleting] = useState<Match | null>(null);
   const [reporting, setReporting] = useState<Match | null>(null);
@@ -741,10 +745,10 @@ function TrackerPage() {
   });
 
   useEffect(() => {
-    if (state?.source !== 'club-locker') return;
+    if (!canManage || state?.source !== 'club-locker') return;
     const timer = window.setInterval(() => doRefresh(true), 5 * 60 * 1000);
     return () => window.clearInterval(timer);
-  }, [state?.source]);
+  }, [state?.source, canManage]);
   const saveMatch = (match: Match, data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => {
     updateMatch.mutate({ matchId: match.id, data }, { onSuccess: (updated) => { patchMatch(updated); setEditing(null); showSuccess('Match card updated'); } });
   };
@@ -801,7 +805,8 @@ function TrackerPage() {
       .sort((a, b) => coachName(a.coachId).localeCompare(coachName(b.coachId)) || +new Date(a.startsAt) - +new Date(b.startsAt));
   return (
     <div className="noise min-h-[100dvh] bg-background text-foreground">
-      <Header state={state} onRefresh={() => doRefresh()} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
+      <Header state={state} canManage={canManage} onRefresh={() => doRefresh()} refreshing={refresh.isPending} onSettings={() => setSettingsOpen(true)} />
+      {!canManage && <div data-testid="coach-access-notice" className="border-b border-border bg-secondary/30 px-4 py-3 text-center text-xs text-primary">Coach access · View all matches and add feedback to completed matches. Reports are shared with the coaching team and player.</div>}
       {offline && (
         <div data-testid="banner-offline" role="status" className="border-b border-accent/40 bg-accent/10 px-4 py-2 text-center text-xs font-bold text-primary">
           No connection. Showing the board from {formatTime(state.lastUpdatedAt)}. It will update when you are back online.
@@ -811,7 +816,7 @@ function TrackerPage() {
       {stale && (
         <div data-testid="banner-stale" role="status" className="border-b border-accent/40 bg-accent/10 px-4 py-2 text-center text-xs font-bold text-primary">
           Last updated {relativeAgo(state.lastUpdatedAt, now)}. Tap refresh before you rely on times.
-          <button type="button" onClick={() => doRefresh()} className="ml-2 min-h-8 underline">Refresh now</button>
+          <button type="button" onClick={() => canManage ? doRefresh() : void tracker.refetch()} className="ml-2 min-h-8 underline">{canManage ? 'Refresh now' : 'Reload matches'}</button>
         </div>
       )}
       <main className="court-lines mx-auto min-h-[calc(100dvh-112px)] max-w-6xl px-4 pb-12 pt-7 sm:px-8 sm:pt-10">
@@ -830,7 +835,7 @@ function TrackerPage() {
             </div>
           </div>
         )}
-        {pendingRecoveryNotices > 0 && (
+        {canManage && pendingRecoveryNotices > 0 && (
           <div data-testid="notice-pending-recoveries" role="alert" className="mb-5 flex items-start gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4 text-sm">
             <AlertCircle size={18} className="mt-0.5 shrink-0 text-accent" />
             <div>
@@ -842,7 +847,7 @@ function TrackerPage() {
           </div>
         )}
         {!matches.length ? (
-          <EmptyState onRefresh={() => doRefresh()} onSettings={() => setSettingsOpen(true)} refreshing={refresh.isPending} />
+          <EmptyState canManage={canManage} onRefresh={() => doRefresh()} onSettings={() => setSettingsOpen(true)} refreshing={refresh.isPending} />
         ) : (
           <>
         <div className="rise-in hidden flex-col justify-between gap-4 sm:flex sm:flex-row sm:items-end">
@@ -861,7 +866,7 @@ function TrackerPage() {
         </div>
         <div className="rise-in delay-2 mt-7 flex items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-card-border bg-card p-1 shadow-sm">
-            <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>
+            {canManage && <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>}
             <button data-testid="tab-players" onClick={() => setView('players')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
             <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
           </div>
@@ -876,9 +881,9 @@ function TrackerPage() {
           </div>
         )}
         <div className="rise-in delay-3 mt-4 space-y-3">
-          {view === 'next' && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} filterCoachId={myCoachId && state.coaches.some((coach) => coach.id === myCoachId) ? myCoachId : null} />}
+          {view === 'next' && canManage && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} filterCoachId={myCoachId && state.coaches.some((coach) => coach.id === myCoachId) ? myCoachId : null} />}
           {view !== 'next' && filteredMatches.map((match) => (
-            <MatchCard key={match.id} match={match} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
+            <MatchCard key={match.id} match={match} canManage={canManage} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
           ))}
         </div>
         <footer className="mt-10 flex items-center justify-between border-t border-border pt-4 text-[10px] text-muted-foreground">
@@ -888,10 +893,10 @@ function TrackerPage() {
           </>
         )}
       </main>
-      {editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
-      {completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
+      {canManage && editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
+      {canManage && completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
       {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
-      {settingsOpen && <SettingsEditor state={state} onSetupSaved={() => { void queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() }); }} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
+      {canManage && settingsOpen && <SettingsEditor state={state} onSetupSaved={() => { void queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() }); }} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>
   );
@@ -1082,6 +1087,7 @@ function Router() {
       <Switch>
         <Route path="/players/:shareToken" component={PlayerView} />
         <Route path="/sign-in/*?" component={SignInPage} />
+        <Route path="/sign-up/*?" component={SignUpPage} />
         <Route path="/" component={StaffHome} />
         <Route component={NotFound} />
       </Switch>
@@ -1089,18 +1095,30 @@ function Router() {
   );
 }
 
+function ApprovedTracker() {
+  const access = useTrackerAccess();
+  if (access.isPending) return <TrackerSkeleton />;
+  // Never render a previously approved view after permission checks fail.
+  if (access.isError) {
+    if (access.error.status === 401 || access.error.status === 403) return <NotApprovedState />;
+    return <FailureState retry={() => { void access.refetch(); }} />;
+  }
+  return <TrackerPage key={access.data.role} role={access.data.role} />;
+}
+
 function StaffHome() {
   return (
     <>
-      <Show when="signed-in"><TrackerPage /></Show>
+      <Show when="signed-in"><ApprovedTracker /></Show>
       <Show when="signed-out">
         <main className="noise flex min-h-[100dvh] items-center justify-center bg-background px-5">
           <section className="w-full max-w-md rounded-[26px] border border-card-border bg-card p-8 text-center shadow-xl">
             <img src={`${basePath}/logo.svg`} alt="" className="mx-auto h-16 w-16 rounded-2xl" />
-            <p className="mt-6 font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Staff access</p>
+            <p className="mt-6 font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Staff & coach access</p>
             <h1 className="mt-2 font-serif text-4xl font-bold">StaitSquash tracker</h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">Approved staff must sign in before managing matches, reports, coaches, and branding.</p>
-            <a href={`${basePath}/sign-in`} className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">Staff sign in</a>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">Coaches sign in to add match feedback and voice notes. Staff manage the tracker. Your account must be approved by the match desk.</p>
+            <a href={`${basePath}/sign-in`} className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-primary-foreground">Staff & coach sign in</a>
+            <p className="mt-4 text-xs text-muted-foreground">New coach? <a href={`${basePath}/sign-up`} className="font-semibold underline">Create an account</a>, then ask the match desk to approve your email.</p>
           </section>
         </main>
       </Show>
@@ -1133,7 +1151,15 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 function SignInPage() {
   return (
     <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignIn routing="path" path={`${basePath}/sign-in`} />
+      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={`${basePath}/`} />
+    </div>
+  );
+}
+
+function SignUpPage() {
+  return (
+    <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-4">
+      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={`${basePath}/`} />
     </div>
   );
 }
@@ -1147,6 +1173,7 @@ function ClerkQueryClientCacheInvalidator() {
     const userId = user?.id ?? null;
     if (previousUserId.current !== undefined && previousUserId.current !== userId) {
       queryClient.clear();
+      clearCachedBoard();
     }
     previousUserId.current = userId;
   }), [addListener, queryClient]);
@@ -1205,7 +1232,7 @@ function ClerkRoutes() {
         },
       }}
       signInUrl={`${basePath}/sign-in`}
-      localization={{ signIn: { start: { title: 'Staff sign in', subtitle: 'Access the StaitSquash match desk' } } }}
+      localization={{ signIn: { start: { title: 'Staff & coach sign in', subtitle: 'Access the StaitSquash tracker' } } }}
       routerPush={(to) => setLocation(stripBase(to))}
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >

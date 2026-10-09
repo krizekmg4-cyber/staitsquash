@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const DateTimeString = z.string().datetime({ offset: true });
 const ObjectPath = z.string().regex(/^\/objects\/uploads\/[0-9a-f-]+$/);
+const LogoObjectPath = z.string().max(500).regex(/^\/objects\/uploads\/(?:logos\/)?[0-9a-f-]+$/);
 
 const TrackerPerson = z.object({
   id: z.string().min(1),
@@ -70,7 +71,7 @@ export const PersistedTrackerState = z.object({
   branding: z
     .object({
       name: z.string().min(1).max(80),
-      logoPath: ObjectPath.nullable().optional(),
+      logoPath: LogoObjectPath.nullable().optional(),
       logoUrl: z.string().nullable().optional(),
     })
     .optional(),

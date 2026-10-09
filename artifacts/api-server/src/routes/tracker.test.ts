@@ -40,6 +40,22 @@ test("logo validation checks actual bytes rather than claimed MIME type", () => 
   assert.equal(isLogoImage(Buffer.alloc(5 * 1024 * 1024 + 1), "image/png"), false);
 });
 
+test("persisted tracker accepts both current and legacy logo uploads without changing them", () => {
+  for (const logoPath of [
+    "/objects/uploads/11111111-1111-4111-8111-111111111111",
+    "/objects/uploads/logos/11111111-1111-4111-8111-111111111111",
+  ]) {
+    const state = healthyState();
+    state.branding = { name: "StaitSquash", logoPath };
+    assert.equal(parsePersistedTrackerState(state).branding?.logoPath, logoPath);
+  }
+  for (const logoPath of ["/unsafe/logo.png", "/objects/uploads/logos/../private", "https://example.com/logo.png"]) {
+    const state = healthyState();
+    state.branding = { name: "StaitSquash", logoPath };
+    assert.throws(() => parsePersistedTrackerState(state), /branding\.logoPath/);
+  }
+});
+
 test("staff routes distinguish anonymous, unapproved, and approved accounts", async () => {
   const cases: Array<[string | null, boolean, number]> = [
     [null, false, 401],

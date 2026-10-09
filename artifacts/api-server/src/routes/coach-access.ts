@@ -107,8 +107,13 @@ export function createCoachAccessRouter(dependencies: {
   });
 
   router.delete("/coach-access/:userId", staff, async (req, res) => {
+    const userId = req.params.userId;
+    if (typeof userId !== "string" || !/^user_[A-Za-z0-9]+$/.test(userId)) {
+      res.status(400).json({ error: "Invalid coach account." });
+      return;
+    }
     try {
-      const user = await accounts.get(req.params.userId);
+      const user = await accounts.get(userId);
       if (isConfiguredStaff(user.id) || user.publicMetadata.role === "staff") {
         res.status(409).json({ error: "Full staff access cannot be removed here." });
         return;
