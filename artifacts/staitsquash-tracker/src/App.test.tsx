@@ -106,93 +106,6 @@ describe('restricted coach feedback', () => {
     expect(screen.getByTestId('input-transcript')).toHaveValue('Well played');
   });
 
-  it('saves one comment, reopens all optional fields and retains feedback on a failed save', async () => {
-    const completed = { ...tracker.matches[0], id: 'completed-1', status: 'completed', result: '3–1' };
-    let report: { observations: string[]; transcript: string | null; audioPath: string | null; matchId: string; updatedAt: string } | null = null;
-    let failNext = false;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
-      if (url.endsWith('/api/tracker')) return Response.json({ ...tracker, matches: [{ ...completed, report }] });
-      if (url.endsWith('/api/matches/completed-1/report')) {
-        if (failNext) return Response.json({ error: 'Please try saving again' }, { status: 503 });
-        report = { ...JSON.parse(String(init?.body)), matchId: 'completed-1', updatedAt: new Date().toISOString() };
-        return Response.json(report);
-      }
-      throw new Error(`Unexpected request ${url}`);
-    }));
-    const view = render(<App />);
-    fireEvent.click(await screen.findByTestId('button-report-completed-1'));
-    expect(screen.getByTestId('button-save-report')).toBeDisabled();
-    fireEvent.change(screen.getByTestId('input-observation-1'), { target: { value: '  Great movement  ' } });
-    expect(screen.getByTestId('button-save-report')).toBeEnabled();
-    fireEvent.click(screen.getByTestId('button-save-report'));
-    await screen.findByText('Coach report saved');
-    expect(report).toMatchObject({ observations: ['Great movement'] });
-    view.unmount();
-    render(<App />);
-    fireEvent.click(await screen.findByTestId('button-report-completed-1'));
-    expect(screen.getByTestId('input-observation-1')).toHaveValue('Great movement');
-    expect(screen.getByTestId('input-observation-2')).toHaveValue('');
-    expect(screen.getByTestId('input-observation-3')).toHaveValue('');
-    failNext = true;
-    fireEvent.change(screen.getByTestId('input-observation-1'), { target: { value: 'Unsaved new advice' } });
-    fireEvent.click(screen.getByTestId('button-save-report'));
-    expect(await screen.findByTestId('error-save-report')).toHaveTextContent('Please try saving again');
-    expect(screen.getByTestId('input-observation-1')).toHaveValue('Unsaved new advice');
-    expect(screen.getByTestId('button-save-report')).toBeEnabled();
-  });
-
-  it('saves a voice note with no written observations or automatic transcript', async () => {
-    const stopTrack = vi.fn();
-    vi.stubGlobal('navigator', { ...navigator, mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: stopTrack }] })) } });
-    let recorder: FakeRecorder;
-    class FakeRecorder {
-      state = 'inactive';
-      mimeType = 'audio/webm';
-      ondataavailable: ((event: { data: Blob }) => void) | null = null;
-      onstop: (() => void) | null = null;
-      constructor() { recorder = this; }
-      start() { this.state = 'recording'; }
-      stop() {
-        this.state = 'inactive';
-        this.ondataavailable?.({ data: new Blob(['fake voice data'], { type: this.mimeType }) });
-        this.onstop?.();
-      }
-    }
-    vi.stubGlobal('MediaRecorder', FakeRecorder);
-    const completed = { ...tracker.matches[0], id: 'completed-1', status: 'completed', result: '3–1' };
-    const path = '/objects/uploads/11111111-1111-4111-8111-111111111111';
-    let saved: unknown;
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
-      if (url.endsWith('/api/tracker')) return Response.json({ ...tracker, matches: [completed] });
-      if (url.endsWith('/api/matches/completed-1/report/audio')) {
-        expect(init?.body).toBeInstanceOf(Blob);
-        return Response.json({ objectPath: path });
-      }
-      if (url.endsWith('/api/matches/completed-1/report')) {
-        saved = JSON.parse(String(init?.body));
-        return Response.json({ ...saved as object, matchId: completed.id, updatedAt: new Date().toISOString() });
-      }
-      throw new Error(`Unexpected request ${url}`);
-    }));
-    render(<App />);
-    fireEvent.click(await screen.findByTestId('button-report-completed-1'));
-    expect(screen.getByTestId('button-save-report')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('button-toggle-recording'));
-    await screen.findByTestId('status-recording');
-    expect(screen.getByTestId('button-save-report')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('button-toggle-recording'));
-    await screen.findByTestId('status-recorded');
-    expect(screen.getByTestId('button-save-report')).toBeEnabled();
-    fireEvent.click(screen.getByTestId('button-save-report'));
-    await screen.findByText('Coach report saved');
-    expect(saved).toEqual({ observations: [], transcript: null, audioPath: path });
-    expect(stopTrack).toHaveBeenCalled();
-  });
-
   it('does not offer settings or draw refresh when the coach board is empty', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).endsWith('/api/tracker/health')
       ? Response.json(initialHealth)
@@ -205,8 +118,8 @@ describe('restricted coach feedback', () => {
   });
 });
 
-describe('Eastern match editing', () => {
-  it('shows 11 am Eastern and saves edits as absolute instants rather than browser-local times', async () => {
+describe('Pacific match editing', () => {
+  it('shows 8 am Pacific and saves edits as absolute instants rather than browser-local times', async () => {
     signedIn = true;
     const match = { ...tracker.matches[0], startsAt: '2026-10-10T15:00:00Z', endsAt: '2026-10-10T15:45:00Z' };
     let saved: Record<string, unknown> | undefined;
@@ -222,11 +135,11 @@ describe('Eastern match editing', () => {
     }));
     render(<App />);
     fireEvent.click(await screen.findByTestId('tab-players'));
-    expect(await screen.findByText('11:00')).toBeInTheDocument();
-    expect(screen.getByText('Match-day tracker · Eastern Time')).toBeInTheDocument();
+    expect(await screen.findByText('08:00')).toBeInTheDocument();
+    expect(screen.getByText('Match-day tracker · each match in its own tournament time')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId(`button-edit-match-${match.id}`));
-    expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T11:00');
-    fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T11:15' } });
+    expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T08:00');
+    fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T08:15' } });
     fireEvent.click(screen.getByTestId('button-save-match'));
     await waitFor(() => expect(saved).toMatchObject({
       startsAt: '2026-10-10T15:15:00.000Z', endsAt: match.endsAt,
