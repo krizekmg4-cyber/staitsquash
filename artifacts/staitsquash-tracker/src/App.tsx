@@ -38,6 +38,7 @@ import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-r
 import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
 import CoachAccessSection from './CoachAccessSection';
+import { CoachingSummary } from './CoachingSummary';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
 import { formatDay, formatTime, formatInputDate, parsePacificInput, MATCH_TIME_ZONE } from './lib/match-time';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
@@ -50,7 +51,7 @@ import { ClerkProvider, SignIn, SignUp, Show, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 
-type ViewMode = 'next' | 'players' | 'coaches';
+type ViewMode = 'next' | 'players' | 'coaches' | 'summary';
 
 const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
 const isSystemCoach = (coachId: string) => SYSTEM_COACH_IDS.includes(coachId);
@@ -870,6 +871,7 @@ function TrackerPage({ role }: { role: TrackerRole }) {
             {canManage && <button data-testid="tab-next" onClick={() => setView('next')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'next' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><Clock3 size={14} className="mr-1.5 inline" />Next up</button>}
             <button data-testid="tab-players" onClick={() => setView('players')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'players' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><UsersRound size={14} className="mr-1.5 inline" />Players</button>
             <button data-testid="tab-coaches" onClick={() => setView('coaches')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'coaches' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}><CircleUserRound size={14} className="mr-1.5 inline" />Coaches</button>
+            {canManage && <button data-testid="tab-summary" onClick={() => setView('summary')} className={cx('whitespace-nowrap rounded-lg px-3 py-2 text-xs font-bold transition-colors sm:px-4', view === 'summary' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary')}>Summary</button>}
           </div>
           <span className="hidden font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground sm:inline">{view === 'next' ? `${state.players.length} players` : `${filteredMatches.length} cards`}</span>
         </div>
@@ -883,7 +885,8 @@ function TrackerPage({ role }: { role: TrackerRole }) {
         )}
         <div className="rise-in delay-3 mt-4 space-y-3">
           {view === 'next' && canManage && <NextMatchBoard matches={matches} players={state.players} coaches={state.coaches} onAssign={assignCoach} savingMatchId={assigningMatchId} filterCoachId={myCoachId && state.coaches.some((coach) => coach.id === myCoachId) ? myCoachId : null} />}
-          {view !== 'next' && filteredMatches.map((match) => (
+          {view === 'summary' && canManage && <CoachingSummary matches={matches} players={state.players} coaches={state.coaches} onCopy={(text) => { void copyText(text); showSuccess('Summary copied'); }} />}
+          {(view === 'players' || view === 'coaches') && filteredMatches.map((match) => (
             <MatchCard key={match.id} match={match} canManage={canManage} player={state.players.find((player) => player.id === match.playerId)} coach={state.coaches.find((coach) => coach.id === match.coachId)} onEdit={setEditing} onComplete={setCompleting} onReport={setReporting} />
           ))}
         </div>
