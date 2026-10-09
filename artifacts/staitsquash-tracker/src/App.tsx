@@ -39,6 +39,7 @@ import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
 import CoachAccessSection from './CoachAccessSection';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
+import { formatDay, formatTime, formatInputDate, parsePacificInput, MATCH_TIME_ZONE } from './lib/match-time';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -71,18 +72,6 @@ const movedNote = (match: Match, now = Date.now()) => {
 };
 
 const cx = (...classes: Array<string | false | undefined>) => classes.filter(Boolean).join(' ');
-
-const formatDay = (value: string) =>
-  new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(value));
-
-const formatTime = (value: string) =>
-  new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
-
-const formatInputDate = (value: string) => {
-  const date = new Date(value);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-};
 
 const getInitials = (name: string) =>
   name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
@@ -174,7 +163,7 @@ function Header({ state, onRefresh, refreshing, onSettings, canManage = true }: 
           </div>}
           <div>
             <p className="font-serif text-lg font-bold leading-none tracking-tight">{state.branding.name}</p>
-            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker</p>
+            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker · Pacific Time</p>
           </div>
         </div>
         <div className="flex items-center gap-2">{canManage && <><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
@@ -383,20 +372,32 @@ function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match
     opponent: match.opponent, startsAt: formatInputDate(match.startsAt), endsAt: formatInputDate(match.endsAt), venue: match.venue, court: match.court, coachId: match.coachId,
   });
   const field = (name: keyof typeof form, value: string) => setForm((current) => ({ ...current, [name]: value }));
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const save = () => {
+    try {
+      const startsAt = parsePacificInput(form.startsAt, match.startsAt);
+      const endsAt = parsePacificInput(form.endsAt, match.endsAt);
+      setTimeError(null);
+      onSave({ ...form, startsAt, endsAt });
+    } catch (error) {
+      setTimeError(error instanceof Error ? error.message : 'Enter valid Pacific match times.');
+    }
+  };
   return (
     <Modal title="Edit match" eyebrow="Match details" onClose={onClose}>
       <div className="space-y-4">
         <label className="block"><span className="field-label">Opponent</span><input data-testid="input-opponent" value={form.opponent} onChange={(event) => field('opponent', event.target.value)} className="field" /></label>
         <div className="grid grid-cols-2 gap-3">
-          <label><span className="field-label">Starts</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
-          <label><span className="field-label">Ends</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Starts (Pacific)</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Ends (Pacific)</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
         </div>
         <div className="grid grid-cols-[1fr_100px] gap-3">
           <label><span className="field-label">Venue</span><input data-testid="input-venue" value={form.venue} onChange={(event) => field('venue', event.target.value)} className="field" /></label>
           <label><span className="field-label">Court</span><input data-testid="input-court" value={form.court} onChange={(event) => field('court', event.target.value)} className="field" /></label>
         </div>
         <label className="block"><span className="field-label">Assign coach</span><span className="relative block"><select data-testid="select-coach" value={form.coachId} onChange={(event) => field('coachId', event.target.value)} className="field appearance-none pr-9">{coaches.map((coach) => <option key={coach.id} value={coach.id}>{coach.name}</option>)}</select><ChevronDown size={16} className="pointer-events-none absolute right-3 top-3.5 text-muted-foreground" /></span></label>
-        <button data-testid="button-save-match" disabled={saving || !form.opponent || !form.court} onClick={() => onSave(form)} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving match…' : 'Save match'}</button>
+        {timeError && <p role="alert" className="text-sm text-destructive">{timeError}</p>}
+        <button data-testid="button-save-match" disabled={saving || !form.opponent || !form.court} onClick={save} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving ? 'Saving match…' : 'Save match'}</button>
       </div>
     </Modal>
   );
@@ -852,7 +853,7 @@ function TrackerPage({ role }: { role: TrackerRole }) {
           <>
         <div className="rise-in hidden flex-col justify-between gap-4 sm:flex sm:flex-row sm:items-end">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">{new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(new Date())} · match desk</p>
+            <p className="font-mono text-[10px] uppercase tracking-[.22em] text-muted-foreground">{new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: MATCH_TIME_ZONE }).format(new Date())} · match desk</p>
             <h1 data-testid="heading-tracker" className="mt-2 font-serif text-4xl font-bold tracking-[-.04em] sm:text-5xl">Stay on court.</h1>
             <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">The next match, without the rummage. Follow each player from warm-up to report.</p>
           </div>
@@ -984,7 +985,7 @@ function PlayerView() {
                 <p className="font-mono text-[10px] uppercase tracking-[.2em] text-secondary">Next match</p>
                 <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt)}</span>
               </div>
-              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)}</p>
+              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)} <span className="text-base">PT</span></p>
               <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt)}</p>
               <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-primary-foreground/15 py-5">
                 <div>

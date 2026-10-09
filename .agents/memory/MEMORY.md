@@ -6,3 +6,5 @@
 - [Tracker recovery transactions](tracker-recovery-transactions.md) — lock and revalidate raw state; commit backup, reset, and audit together or roll back all.
 - [Shared declaration freshness](shared-declaration-freshness.md) — source-only Git checkouts can leave consumed library declarations stale; rebuild before diagnosing missing fields.
 - [Stored file-path contracts](stored-file-path-contracts.md) — upload-path changes must stay compatible with persisted-state validation as well as API and storage validation.
+- [Pacific match times](pacific-match-times.md) — display and edit match times in Pacific Time even when staff, coaches, or players are elsewhere.
+- [Production readiness and auth](production-readiness-auth.md) — internal publishing probes lack a trusted public hostname; readiness must not depend on sign-in.

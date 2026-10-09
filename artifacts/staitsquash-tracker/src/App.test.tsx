@@ -118,6 +118,36 @@ describe('restricted coach feedback', () => {
   });
 });
 
+describe('Pacific match editing', () => {
+  it('shows 8 am Pacific and saves edits as absolute instants rather than browser-local times', async () => {
+    signedIn = true;
+    const match = { ...tracker.matches[0], startsAt: '2026-10-10T15:00:00Z', endsAt: '2026-10-10T15:45:00Z' };
+    let saved: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/tracker/health')) return Response.json(initialHealth);
+      if (url.endsWith('/api/tracker')) return Response.json({ ...tracker, matches: [match] });
+      if (url.endsWith(`/api/matches/${match.id}`)) {
+        saved = JSON.parse(String(init?.body));
+        return Response.json({ ...match, ...saved });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByTestId('tab-players'));
+    expect(await screen.findByText('08:00')).toBeInTheDocument();
+    expect(screen.getByText('Match-day tracker · Pacific Time')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`button-edit-match-${match.id}`));
+    expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T08:00');
+    fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T08:15' } });
+    fireEvent.click(screen.getByTestId('button-save-match'));
+    await waitFor(() => expect(saved).toMatchObject({
+      startsAt: '2026-10-10T15:15:00.000Z', endsAt: match.endsAt,
+    }));
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('empty tracker setup access', () => {
   beforeEach(() => {
     signedIn = true;

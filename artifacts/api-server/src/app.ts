@@ -9,6 +9,7 @@ import {
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
+import healthRouter from "./routes/health";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -32,17 +33,21 @@ app.use(
     },
   }),
 );
+// Startup probes have no trusted public hostname and must not depend on auth.
+app.use("/api", healthRouter);
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 app.use(cors({ credentials: true, origin: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
+  clerkMiddleware((req) => {
+    const host = getClerkProxyHost(req);
+    return {
+      publishableKey: host
+        ? publishableKeyFromHost(host, process.env.CLERK_PUBLISHABLE_KEY)
+        : process.env.CLERK_PUBLISHABLE_KEY,
+    };
+  }),
 );
 
 app.use("/api", router);
