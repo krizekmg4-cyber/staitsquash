@@ -52,7 +52,7 @@ import {
 } from "../lib/weekly-setup.js";
 import { SCHEDULER_TOKEN } from "../lib/scheduler-token.js";
 import { ObjectStorageService } from "../lib/object-storage.js";
-import { requireStaff } from "../middlewares/requireStaff.js";
+import { requireStaff, requireTrackerAccess } from "../middlewares/requireStaff.js";
 
 const SYSTEM_COACHES = [
   { id: "unassigned", name: "Unassigned" },
@@ -431,6 +431,7 @@ async function alertStaffOfRecovery(
 }
 
 type TrackerRouterDependencies = {
+  authorizeTracker?: RequestHandler;
   getState: () => Promise<ReadonlyTrackerState>;
   saveState: (state: TrackerState) => Promise<void>;
   mutateState?: <T>(operation: StateMutationOperation<T>) => Promise<T>;
@@ -658,6 +659,7 @@ export function createTrackerRouter(
   const router: IRouter = Router();
   const objectStorage = dependencies.objectStorage ?? new ObjectStorageService();
   const authorizeStaff = dependencies.authorizeStaff ?? requireStaff;
+  const authorizeTracker = dependencies.authorizeTracker ?? dependencies.authorizeStaff ?? requireTrackerAccess;
   const { getState: loadState, saveState: persistState } = dependencies;
   const recoverRejectedState =
     dependencies.recoverInvalidState ?? recoverInvalidTrackerState;
@@ -707,11 +709,16 @@ export function createTrackerRouter(
     }
   }
 
-  router.get("/tracker", authorizeStaff, async (_req, res): Promise<void> => {
-    res.json(GetTrackerResponse.parse(trackerResponse(await loadState())));
+  router.get("/tracker", authorizeTracker, async (_req, res): Promise<void> => {
+    const state = GetTrackerResponse.parse(trackerResponse(await loadState()));
+    if (res.locals.trackerRole === "coach") {
+      // Feedback access does not include distributing private player links.
+      state.players = state.players.map((player) => ({ ...player, shareToken: "" }));
+    }
+    res.json(state);
   });
 
-  router.get("/tracker/health", authorizeStaff, async (_req, res): Promise<void> => {
+  router.get("/tracker/health", authorizeTracker, async (_req, res): Promise<void> => {
     res.json(GetTrackerHealthResponse.parse(trackerHealthResponse(await loadState())));
   });
 
@@ -945,7 +952,7 @@ export function createTrackerRouter(
     });
   });
 
-  router.put("/matches/:matchId/report", authorizeStaff, async (req, res): Promise<void> => {
+  router.put("/matches/:matchId/report", authorizeTracker, async (req, res): Promise<void> => {
     const params = SaveCoachReportParams.safeParse(req.params);
     const body = SaveCoachReportBody.safeParse(req.body);
     if (!params.success) {
@@ -1025,7 +1032,7 @@ export function createTrackerRouter(
 
   router.post(
     "/matches/:matchId/report/audio",
-    authorizeStaff,
+    authorizeTracker,
     express.raw({ type: ["audio/webm", "audio/ogg", "audio/mp4"], limit: "25mb" }),
     async (req, res): Promise<void> => {
       const params = UploadCoachReportAudioParams.safeParse(req.params);
