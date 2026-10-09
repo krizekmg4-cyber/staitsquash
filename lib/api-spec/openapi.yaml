@@ -430,6 +430,9 @@ components:
         opponent: { type: string }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
+        timeZone:
+          type: string
+          description: IANA time zone of the tournament; the app shows this match's times in it.
         venue: { type: string }
         court: { type: string }
         coachId: { type: string }

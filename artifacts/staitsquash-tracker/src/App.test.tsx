@@ -136,7 +136,7 @@ describe('Pacific match editing', () => {
     render(<App />);
     fireEvent.click(await screen.findByTestId('tab-players'));
     expect(await screen.findByText('08:00')).toBeInTheDocument();
-    expect(screen.getByText('Match-day tracker · Pacific Time')).toBeInTheDocument();
+    expect(screen.getByText('Match-day tracker · each match in its own tournament time')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId(`button-edit-match-${match.id}`));
     expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T08:00');
     fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T08:15' } });

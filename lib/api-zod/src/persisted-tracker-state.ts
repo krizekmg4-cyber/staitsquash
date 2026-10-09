@@ -48,6 +48,7 @@ const TrackerMatch = z.object({
   opponent: z.string().min(1),
   startsAt: DateTimeString,
   endsAt: DateTimeString,
+  timeZone: z.string().min(1).max(64).optional(),
   venue: z.string().min(1),
   court: z.string().min(1),
   coachId: z.string().min(1),
