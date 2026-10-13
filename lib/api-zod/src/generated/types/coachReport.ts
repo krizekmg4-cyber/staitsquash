@@ -9,7 +9,7 @@
 export interface CoachReport {
   matchId: string;
   /**
-     * @minItems 3
+     * @minItems 0
      * @maxItems 3
      */
   observations: string[];

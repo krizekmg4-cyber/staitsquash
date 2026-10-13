@@ -35,11 +35,14 @@ const RefreshHealth = z.object({
 
 const CoachReport = z.object({
   matchId: z.string().min(1),
-  observations: z.array(z.string().min(1)).length(3),
+  observations: z.array(z.string().min(1)).max(3),
   transcript: z.string().nullable(),
   audioPath: ObjectPath.nullable().optional(),
   updatedAt: DateTimeString,
-});
+}).refine(
+  (report) => report.observations.some((item) => item.trim()) || !!report.transcript?.trim() || !!report.audioPath,
+  { message: "A coach report must contain written feedback or a voice note" },
+);
 
 const TrackerMatch = z.object({
   id: z.string().min(1),

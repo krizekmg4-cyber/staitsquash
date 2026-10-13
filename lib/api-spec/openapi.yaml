@@ -397,7 +397,7 @@ components:
         matchId: { type: string }
         observations:
           type: array
-          minItems: 3
+          minItems: 0
           maxItems: 3
           items: { type: string }
         transcript:
@@ -408,11 +408,12 @@ components:
         updatedAt: { type: string, format: date-time }
     CoachReportInput:
       type: object
+      description: Provide at least one written observation, non-blank transcript, or voice note. Up to three observations are allowed.
       required: [observations]
       properties:
         observations:
           type: array
-          minItems: 3
+          minItems: 0
           maxItems: 3
           items: { type: string, minLength: 1, maxLength: 220 }
         transcript:

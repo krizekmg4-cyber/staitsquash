@@ -25,7 +25,7 @@ export const getTrackerResponsePlayersItemShareTokenMax = 128;
 
 
 export const getTrackerResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
-export const getTrackerResponseMatchesItemReportOneObservationsMin = 3;
+export const getTrackerResponseMatchesItemReportOneObservationsMin = 0;
 export const getTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
 export const getTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -126,7 +126,7 @@ export const GetPlayerTrackerParams = zod.object({
   "shareToken": zod.coerce.string().min(getPlayerTrackerPathShareTokenMin).max(getPlayerTrackerPathShareTokenMax)
 })
 
-export const getPlayerTrackerResponseMatchesItemReportOneObservationsMin = 3;
+export const getPlayerTrackerResponseMatchesItemReportOneObservationsMin = 0;
 export const getPlayerTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
 export const getPlayerTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -210,7 +210,7 @@ export const saveTrackerSettingsResponsePlayersItemShareTokenMax = 128;
 
 
 export const saveTrackerSettingsResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
-export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMin = 3;
+export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMin = 0;
 export const saveTrackerSettingsResponseMatchesItemReportOneObservationsMax = 3;
 
 export const saveTrackerSettingsResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -354,7 +354,7 @@ export const UpdateMatchBody = zod.object({
   "result": zod.string().nullish()
 })
 
-export const updateMatchResponseReportOneObservationsMin = 3;
+export const updateMatchResponseReportOneObservationsMin = 0;
 export const updateMatchResponseReportOneObservationsMax = 3;
 
 export const updateMatchResponseReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -398,7 +398,7 @@ export const SaveCoachReportParams = zod.object({
 
 export const saveCoachReportBodyObservationsItemMax = 220;
 
-export const saveCoachReportBodyObservationsMin = 3;
+export const saveCoachReportBodyObservationsMin = 0;
 export const saveCoachReportBodyObservationsMax = 3;
 
 export const saveCoachReportBodyAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -408,9 +408,9 @@ export const SaveCoachReportBody = zod.object({
   "observations": zod.array(zod.string().min(1).max(saveCoachReportBodyObservationsItemMax)).min(saveCoachReportBodyObservationsMin).max(saveCoachReportBodyObservationsMax),
   "transcript": zod.string().nullish(),
   "audioPath": zod.string().regex(saveCoachReportBodyAudioPathRegExp).nullish()
-})
+}).describe('Provide at least one written observation, non-blank transcript, or voice note. Up to three observations are allowed.')
 
-export const saveCoachReportResponseObservationsMin = 3;
+export const saveCoachReportResponseObservationsMin = 0;
 export const saveCoachReportResponseObservationsMax = 3;
 
 export const saveCoachReportResponseAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');
@@ -448,7 +448,7 @@ export const refreshTrackerResponsePlayersItemShareTokenMax = 128;
 
 
 export const refreshTrackerResponsePlayersItemShareTokenRegExp = new RegExp('^[A-Za-z0-9_-]+$');
-export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 3;
+export const refreshTrackerResponseMatchesItemReportOneObservationsMin = 0;
 export const refreshTrackerResponseMatchesItemReportOneObservationsMax = 3;
 
 export const refreshTrackerResponseMatchesItemReportOneAudioPathRegExp = new RegExp('^/objects/uploads/[0-9a-f-]+$');

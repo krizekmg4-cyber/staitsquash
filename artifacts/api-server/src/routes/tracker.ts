@@ -978,6 +978,12 @@ export function createTrackerRouter(
 
       const previousAudioPath = match.report?.audioPath ?? null;
       const nextAudioPath = body.data.audioPath ?? previousAudioPath;
+      const observations = body.data.observations.map((item) => item.trim()).filter(Boolean);
+      const transcript = body.data.transcript?.trim() || null;
+      if (!observations.length && !transcript && !nextAudioPath) {
+        res.status(400).json({ error: "Add a comment, a transcript, or a voice note before saving" });
+        return null;
+      }
       if (nextAudioPath && nextAudioPath !== previousAudioPath) {
         try {
           await objectStorage.getObject(nextAudioPath);
@@ -992,9 +998,9 @@ export function createTrackerRouter(
       }
       match.report = {
         matchId: match.id,
-        observations: body.data.observations,
-        transcript: body.data.transcript ?? null,
-        audioPath: body.data.audioPath ?? match.report?.audioPath ?? null,
+        observations,
+        transcript,
+        audioPath: nextAudioPath,
         updatedAt: new Date().toISOString(),
       };
       state.lastUpdatedAt = new Date().toISOString();

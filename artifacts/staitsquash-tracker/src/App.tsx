@@ -419,13 +419,15 @@ function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; on
 
 function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (observations: string[], transcript: string | null, audio: Blob | null) => Promise<void>; saving: boolean }) {
   const report = match.report;
-  const [observations, setObservations] = useState<string[]>(report?.observations?.slice(0, 3) ?? ['', '', '']);
+  const [observations, setObservations] = useState<string[]>(Array.from({ length: 3 }, (_, index) => report?.observations?.[index] ?? ''));
   const [transcript, setTranscript] = useState(report?.transcript ?? '');
   const [recording, setRecording] = useState(false);
   const [finalizingRecording, setFinalizingRecording] = useState(false);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
   const [uploading, setUploading] = useState(false);
   const [recordingError, setRecordingError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const hasContent = observations.some((item) => item.trim()) || !!transcript.trim() || !!recordedAudio?.size || !!report?.audioPath;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const speechRef = useRef<{ stop: () => void } | null>(null);
   const updateObservation = (index: number, value: string) => setObservations((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
@@ -489,19 +491,24 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
     setRecording(false);
   };
   const submitReport = async () => {
+    if (!hasContent || saving || uploading || recording || finalizingRecording) return;
+    setSaveError('');
     setUploading(true);
     try {
-      await onSave(observations.map((item) => item.trim()), transcript.trim() || null, recordedAudio);
+      await onSave(observations.map((item) => item.trim()).filter(Boolean), transcript.trim() || null, recordedAudio);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Coach report could not be saved. Please try again.');
     } finally {
       setUploading(false);
     }
   };
   return (
-    <Modal title="Coach report" eyebrow={`${match.opponent} · three takeaways`} onClose={() => { if (recording) stopRecording(); onClose(); }}>
+    <Modal title="Coach report" eyebrow={`${match.opponent} · match feedback`} onClose={() => { if (recording) stopRecording(); onClose(); }} closeDisabled={saving || uploading || finalizingRecording}>
+      <p className="mb-4 text-sm text-muted-foreground">Add one comment or a voice note to save. Extra comments and a transcript are optional.</p>
       <div className="space-y-3">
         {observations.map((observation, index) => (
           <label key={index} className="block">
-            <span className="field-label flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary font-mono text-[10px] text-primary">{index + 1}</span> Observation</span>
+            <span className="field-label flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary font-mono text-[10px] text-primary">{index + 1}</span> {index === 0 ? 'Comment' : 'Additional comment (optional)'}</span>
             <textarea data-testid={`input-observation-${index + 1}`} maxLength={220} rows={2} value={observation} onChange={(event) => updateObservation(index, event.target.value)} placeholder={['What worked under pressure?', 'A movement or technical cue', 'Focus for the next match'][index]} className="field min-h-[72px] resize-none" />
           </label>
         ))}
@@ -509,7 +516,7 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
       <div className="mt-5 rounded-xl border border-border bg-muted/40 p-3">
         <div className="flex items-center justify-between gap-3">
           <div><p className="text-xs font-bold">Voice note</p><p className="mt-0.5 text-[11px] text-muted-foreground">Use your mic, or type the transcript below.</p></div>
-          <button data-testid="button-toggle-recording" onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
+          <button data-testid="button-toggle-recording" disabled={saving || uploading || finalizingRecording} onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:opacity-50', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
         </div>
         {recording && <p data-testid="status-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Recording in progress</p>}
         {finalizingRecording && <p data-testid="status-finalizing-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Preparing voice note…</p>}
@@ -518,7 +525,9 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
         {recordingError && <p data-testid="error-recording" role="alert" className="mt-3 text-xs font-medium text-destructive">{recordingError}</p>}
         <textarea data-testid="input-transcript" rows={2} value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Type a short voice-note transcript…" className="field mt-3 min-h-[64px] resize-none bg-card" />
       </div>
-      <button data-testid="button-save-report" disabled={saving || uploading || recording || finalizingRecording || observations.some((item) => !item.trim())} onClick={() => { void submitReport(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving || uploading ? 'Saving report…' : finalizingRecording ? 'Preparing voice note…' : 'Save three observations'}</button>
+      {saveError && <p data-testid="error-save-report" role="alert" className="mt-3 text-sm text-destructive">{saveError}</p>}
+      {!hasContent && <p className="mt-3 text-xs text-muted-foreground">Enter a comment, type a transcript, or record a voice note to enable Save.</p>}
+      <button data-testid="button-save-report" disabled={saving || uploading || recording || finalizingRecording || !hasContent} onClick={() => { void submitReport(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving || uploading ? 'Saving report…' : finalizingRecording ? 'Preparing voice note…' : 'Save report'}</button>
     </Modal>
   );
 }
@@ -896,7 +905,7 @@ function TrackerPage({ role }: { role: TrackerRole }) {
       </main>
       {canManage && editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {canManage && completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
-      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
+      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio)} saving={saveReport.isPending} />}
       {canManage && settingsOpen && <SettingsEditor state={state} onSetupSaved={() => { void queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() }); }} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>

@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Provide at least one written observation, non-blank transcript, or voice note. Up to three observations are allowed.
+ */
 export interface CoachReportInput {
   /**
-     * @minItems 3
+     * @minItems 0
      * @maxItems 3
      * @items.minLength 1
      * @items.maxLength 220
