@@ -1,4 +1,4 @@
-export const MATCH_TIME_ZONE = 'America/Los_Angeles';
+export const MATCH_TIME_ZONE = 'America/New_York';
 
 export const formatDay = (value: string) =>
   new Intl.DateTimeFormat('en-GB', {
@@ -19,18 +19,18 @@ export function formatInputDate(value: string) {
   return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`;
 }
 
-/** Resolve modern Pacific wall-clock inputs, never the browser's local zone. */
-export function parsePacificInput(value: string, original: string): string {
+/** Resolve modern Eastern wall-clock inputs, never the browser's local zone. */
+export function parseEasternInput(value: string, original: string): string {
   if (formatInputDate(original) === value) return original;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
-  if (!match) throw new Error('Enter a valid date and time in Pacific Time.');
+  if (!match) throw new Error('Enter a valid date and time in Eastern Time.');
   const [, year, month, day, hour, minute] = match;
   const wallClock = Date.UTC(+year, +month - 1, +day, +hour, +minute);
-  const candidates = [7, 8]
+  const candidates = [4, 5]
     .map((offset) => new Date(wallClock + offset * 3_600_000).toISOString())
     .filter((candidate) => formatInputDate(candidate) === value);
   if (candidates.length !== 1) {
-    throw new Error('This Pacific time is skipped or repeated during a daylight-saving change. Choose an unambiguous time.');
+    throw new Error('This Eastern time is skipped or repeated during a daylight-saving change. Choose an unambiguous time.');
   }
   return candidates[0];
 }

@@ -39,7 +39,7 @@ import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
 import CoachAccessSection from './CoachAccessSection';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
-import { formatDay, formatTime, formatInputDate, parsePacificInput, MATCH_TIME_ZONE } from './lib/match-time';
+import { formatDay, formatTime, formatInputDate, parseEasternInput, MATCH_TIME_ZONE } from './lib/match-time';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -163,7 +163,7 @@ function Header({ state, onRefresh, refreshing, onSettings, canManage = true }: 
           </div>}
           <div>
             <p className="font-serif text-lg font-bold leading-none tracking-tight">{state.branding.name}</p>
-            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker · Pacific Time</p>
+            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker · Eastern Time</p>
           </div>
         </div>
         <div className="flex items-center gap-2">{canManage && <><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
@@ -375,12 +375,12 @@ function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match
   const [timeError, setTimeError] = useState<string | null>(null);
   const save = () => {
     try {
-      const startsAt = parsePacificInput(form.startsAt, match.startsAt);
-      const endsAt = parsePacificInput(form.endsAt, match.endsAt);
+      const startsAt = parseEasternInput(form.startsAt, match.startsAt);
+      const endsAt = parseEasternInput(form.endsAt, match.endsAt);
       setTimeError(null);
       onSave({ ...form, startsAt, endsAt });
     } catch (error) {
-      setTimeError(error instanceof Error ? error.message : 'Enter valid Pacific match times.');
+      setTimeError(error instanceof Error ? error.message : 'Enter valid Eastern match times.');
     }
   };
   return (
@@ -388,8 +388,8 @@ function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match
       <div className="space-y-4">
         <label className="block"><span className="field-label">Opponent</span><input data-testid="input-opponent" value={form.opponent} onChange={(event) => field('opponent', event.target.value)} className="field" /></label>
         <div className="grid grid-cols-2 gap-3">
-          <label><span className="field-label">Starts (Pacific)</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
-          <label><span className="field-label">Ends (Pacific)</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Starts (Eastern)</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Ends (Eastern)</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
         </div>
         <div className="grid grid-cols-[1fr_100px] gap-3">
           <label><span className="field-label">Venue</span><input data-testid="input-venue" value={form.venue} onChange={(event) => field('venue', event.target.value)} className="field" /></label>
@@ -994,7 +994,7 @@ function PlayerView() {
                 <p className="font-mono text-[10px] uppercase tracking-[.2em] text-secondary">Next match</p>
                 <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt)}</span>
               </div>
-              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)} <span className="text-base">PT</span></p>
+              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)} <span className="text-base">ET</span></p>
               <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt)}</p>
               <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-primary-foreground/15 py-5">
                 <div>

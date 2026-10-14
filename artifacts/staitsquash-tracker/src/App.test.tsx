@@ -205,8 +205,8 @@ describe('restricted coach feedback', () => {
   });
 });
 
-describe('Pacific match editing', () => {
-  it('shows 8 am Pacific and saves edits as absolute instants rather than browser-local times', async () => {
+describe('Eastern match editing', () => {
+  it('shows 11 am Eastern and saves edits as absolute instants rather than browser-local times', async () => {
     signedIn = true;
     const match = { ...tracker.matches[0], startsAt: '2026-10-10T15:00:00Z', endsAt: '2026-10-10T15:45:00Z' };
     let saved: Record<string, unknown> | undefined;
@@ -222,11 +222,11 @@ describe('Pacific match editing', () => {
     }));
     render(<App />);
     fireEvent.click(await screen.findByTestId('tab-players'));
-    expect(await screen.findByText('08:00')).toBeInTheDocument();
-    expect(screen.getByText('Match-day tracker · Pacific Time')).toBeInTheDocument();
+    expect(await screen.findByText('11:00')).toBeInTheDocument();
+    expect(screen.getByText('Match-day tracker · Eastern Time')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId(`button-edit-match-${match.id}`));
-    expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T08:00');
-    fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T08:15' } });
+    expect(screen.getByTestId('input-starts-at')).toHaveValue('2026-10-10T11:00');
+    fireEvent.change(screen.getByTestId('input-starts-at'), { target: { value: '2026-10-10T11:15' } });
     fireEvent.click(screen.getByTestId('button-save-match'));
     await waitFor(() => expect(saved).toMatchObject({
       startsAt: '2026-10-10T15:15:00.000Z', endsAt: match.endsAt,
