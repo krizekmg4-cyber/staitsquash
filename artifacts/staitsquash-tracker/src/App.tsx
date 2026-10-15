@@ -38,6 +38,8 @@ import type { Coach, Match, Player, TrackerState } from '@workspace/api-client-r
 import { type ReactNode, useEffect } from 'react';
 import { WeeklySetupSection } from './WeeklySetupSection';
 import CoachAccessSection from './CoachAccessSection';
+import AdminAccessSection from './AdminAccessSection';
+import HelpPage from './HelpPage';
 import { CoachingSummary } from './CoachingSummary';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
 import { formatDay, formatTime, formatInputDate, parseZonedInput, matchZone, zoneLabel, MATCH_TIME_ZONE } from './lib/match-time';
@@ -651,7 +653,9 @@ function SettingsEditor({ state, onClose, onSave, onRotateShareLink, rotatingPla
   };
   return (
     <Modal title="Tracker settings" eyebrow="This week, coaches & branding" onClose={onClose} closeDisabled={saving || uploading}>
+      <p className="mb-4 text-xs"><a data-testid="link-help-settings" href={`${basePath}/help`} target="_blank" rel="noreferrer" className="font-bold underline">Instructions for Alex, coaches and families</a></p>
       <CoachAccessSection />
+      <AdminAccessSection />
       <div className="mb-6 border-b border-border pb-6"><WeeklySetupSection coaches={state.coaches} players={state.players} matches={state.matches} onSaved={onSetupSaved} /></div>
       <div className="space-y-6">
         <label className="block"><span className="field-label">Brand name</span><input className="field" value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
@@ -949,6 +953,25 @@ function PlayerView() {
     return () => { document.title = previousTitle; };
   }, [player, state?.branding.name]);
 
+  // A home-screen icon made from a player's link must reopen that player's page, not the staff sign-in.
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!link || typeof URL.createObjectURL !== 'function') return;
+    const originalHref = link.href;
+    const manifest = {
+      name: 'StaitSquash', short_name: 'StaitSquash', display: 'standalone',
+      start_url: window.location.href, scope: `${window.location.origin}/`,
+      background_color: '#17352f', theme_color: '#17352f',
+      icons: [
+        { src: `${window.location.origin}${basePath}/icon-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+        { src: `${window.location.origin}${basePath}/icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' }));
+    link.href = url;
+    return () => { link.href = originalHref; URL.revokeObjectURL(url); };
+  }, []);
+
   if (tracker.isLoading) return <TrackerSkeleton />;
   if (playerNotFound) return <PlayerNotFoundState />;
   if (tracker.isError) return <FailureState retry={() => tracker.refetch()} />;
@@ -1080,6 +1103,7 @@ function PlayerView() {
           )}
         </section>
         <footer className="mt-10 border-t border-border pt-4 text-center font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">Your schedule updates automatically · {state.branding.name}</footer>
+        <p className="mt-3 text-center text-xs"><a data-testid="link-help-player" href={`${basePath}/help#players`} className="font-bold underline">How this page works, and how to put it on your phone</a></p>
       </main>
     </div>
   );
@@ -1090,6 +1114,7 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/players/:shareToken" component={PlayerView} />
+        <Route path="/help" component={HelpPage} />
         <Route path="/sign-in/*?" component={SignInPage} />
         <Route path="/sign-up/*?" component={SignUpPage} />
         <Route path="/" component={StaffHome} />
@@ -1155,7 +1180,10 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 function SignInPage() {
   return (
     <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={`${basePath}/`} />
+      <div className="flex flex-col items-center gap-4">
+        <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={`${basePath}/`} />
+        <a data-testid="link-help" href={`${basePath}/help`} className="text-xs font-bold underline">How to use this app</a>
+      </div>
     </div>
   );
 }
@@ -1163,7 +1191,10 @@ function SignInPage() {
 function SignUpPage() {
   return (
     <div className="noise flex min-h-[100dvh] items-center justify-center bg-background px-4">
-      <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={`${basePath}/`} />
+      <div className="flex flex-col items-center gap-4">
+        <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={`${basePath}/`} />
+        <a data-testid="link-help" href={`${basePath}/help`} className="text-xs font-bold underline">How to use this app</a>
+      </div>
     </div>
   );
 }

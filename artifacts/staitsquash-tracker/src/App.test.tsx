@@ -12,6 +12,7 @@ vi.mock('./lib/tracker-access', () => ({
 }));
 beforeEach(() => { accessRole = 'staff'; });
 vi.mock('./CoachAccessSection', () => ({ default: () => <section>Coach access</section> }));
+vi.mock('./AdminAccessSection', () => ({ default: () => <section>Admin access</section> }));
 
 vi.mock('@clerk/react', () => ({
   ClerkProvider: ({ children }: { children: React.ReactNode }) => children,
