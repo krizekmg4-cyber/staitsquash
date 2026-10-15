@@ -42,7 +42,7 @@ import AdminAccessSection from './AdminAccessSection';
 import HelpPage from './HelpPage';
 import { CoachingSummary } from './CoachingSummary';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
-import { formatDay, formatTime, formatInputDate, parseEasternInput, MATCH_TIME_ZONE } from './lib/match-time';
+import { formatDay, formatTime, formatInputDate, parseZonedInput, matchZone, zoneLabel, MATCH_TIME_ZONE } from './lib/match-time';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -69,7 +69,7 @@ const movedNote = (match: Match, now = Date.now()) => {
   if (!match.moved || match.status === 'completed') return null;
   if (now - Date.parse(match.moved.at) > MOVED_TAG_HOURS * 3_600_000) return null;
   const parts: string[] = [];
-  if (Date.parse(match.moved.fromStartsAt) !== Date.parse(match.startsAt)) parts.push(`was ${formatTime(match.moved.fromStartsAt)}`);
+  if (Date.parse(match.moved.fromStartsAt) !== Date.parse(match.startsAt)) parts.push(`was ${formatTime(match.moved.fromStartsAt, matchZone(match))}`);
   if (match.moved.fromCourt !== match.court) parts.push(`was ${match.moved.fromCourt}`);
   return parts.length ? `Moved · ${parts.join(' · ')}` : null;
 };
@@ -166,7 +166,7 @@ function Header({ state, onRefresh, refreshing, onSettings, canManage = true }: 
           </div>}
           <div>
             <p className="font-serif text-lg font-bold leading-none tracking-tight">{state.branding.name}</p>
-            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker · Eastern Time</p>
+            <p className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/60">Match-day tracker · each match in its own tournament time</p>
           </div>
         </div>
         <div className="flex items-center gap-2">{canManage && <><button data-testid="button-settings" onClick={onSettings} className="inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 hover:bg-sidebar-accent"><Settings size={14} /><span className="hidden sm:inline">Settings</span></button><button data-testid="button-refresh-tracker" onClick={onRefresh} disabled={refreshing} className="group inline-flex items-center gap-2 rounded-lg border border-sidebar-border px-3 py-2 text-xs font-semibold text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent disabled:opacity-60">
@@ -252,7 +252,7 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, fi
             return (
               <div key={player.id} data-testid={`row-next-${player.id}`} className={cx('grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-b-0 md:items-center', columns)}>
                 <p className="min-w-0 truncate text-base font-bold md:text-sm">{player.name}</p>
-                <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt)}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt)}</span></p>
+                <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt, matchZone(next!))}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt, matchZone(next!))} {zoneLabel(next!.startsAt, matchZone(next!))}</span></p>
                 <p className="col-span-2 truncate text-sm md:hidden"><span className="font-semibold">{next!.court}</span> <span className="text-muted-foreground">· vs {next!.opponent}</span></p>
                 <p className="hidden text-sm font-semibold md:block">{next!.court}</p>
                 <p className="hidden truncate text-xs text-muted-foreground md:block">{next!.venue}</p>
@@ -320,7 +320,7 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport, canMana
               {formatTime(match.startsAt)}
             </div>
             <div className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{formatDay(match.startsAt)}</p>
+              <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{formatDay(match.startsAt, matchZone(match))} {zoneLabel(match.startsAt, matchZone(match))}</p>
               <p data-testid={`text-player-${match.id}`} className="truncate text-sm font-bold">{player?.name ?? 'Unassigned player'}</p>
             </div>
           </div>
@@ -338,7 +338,7 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport, canMana
           <div className="text-right">
             <p className="font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">Opponent</p>
             <p data-testid={`text-opponent-${match.id}`} className="mt-1 truncate font-serif text-xl font-bold">{match.opponent}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{formatTime(match.endsAt)} finish</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{formatTime(match.endsAt, matchZone(match))} finish</p>
           </div>
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
@@ -372,18 +372,18 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport, canMana
 
 function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match; coaches: Coach[]; onClose: () => void; onSave: (data: { opponent: string; startsAt: string; endsAt: string; venue: string; court: string; coachId: string }) => void; saving: boolean }) {
   const [form, setForm] = useState({
-    opponent: match.opponent, startsAt: formatInputDate(match.startsAt), endsAt: formatInputDate(match.endsAt), venue: match.venue, court: match.court, coachId: match.coachId,
+    opponent: match.opponent, startsAt: formatInputDate(match.startsAt, matchZone(match)), endsAt: formatInputDate(match.endsAt, matchZone(match)), venue: match.venue, court: match.court, coachId: match.coachId,
   });
   const field = (name: keyof typeof form, value: string) => setForm((current) => ({ ...current, [name]: value }));
   const [timeError, setTimeError] = useState<string | null>(null);
   const save = () => {
     try {
-      const startsAt = parseEasternInput(form.startsAt, match.startsAt);
-      const endsAt = parseEasternInput(form.endsAt, match.endsAt);
+      const startsAt = parseZonedInput(form.startsAt, match.startsAt, matchZone(match));
+      const endsAt = parseZonedInput(form.endsAt, match.endsAt, matchZone(match));
       setTimeError(null);
       onSave({ ...form, startsAt, endsAt });
     } catch (error) {
-      setTimeError(error instanceof Error ? error.message : 'Enter valid Eastern match times.');
+      setTimeError(error instanceof Error ? error.message : 'Enter valid match times.');
     }
   };
   return (
@@ -391,8 +391,8 @@ function MatchEditor({ match, coaches, onClose, onSave, saving }: { match: Match
       <div className="space-y-4">
         <label className="block"><span className="field-label">Opponent</span><input data-testid="input-opponent" value={form.opponent} onChange={(event) => field('opponent', event.target.value)} className="field" /></label>
         <div className="grid grid-cols-2 gap-3">
-          <label><span className="field-label">Starts (Eastern)</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
-          <label><span className="field-label">Ends (Eastern)</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Starts ({zoneLabel(match.startsAt, matchZone(match))})</span><input data-testid="input-starts-at" type="datetime-local" value={form.startsAt} onChange={(event) => field('startsAt', event.target.value)} className="field" /></label>
+          <label><span className="field-label">Ends ({zoneLabel(match.endsAt, matchZone(match))})</span><input data-testid="input-ends-at" type="datetime-local" value={form.endsAt} onChange={(event) => field('endsAt', event.target.value)} className="field" /></label>
         </div>
         <div className="grid grid-cols-[1fr_100px] gap-3">
           <label><span className="field-label">Venue</span><input data-testid="input-venue" value={form.venue} onChange={(event) => field('venue', event.target.value)} className="field" /></label>
@@ -411,7 +411,7 @@ function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; on
   return (
     <Modal title="Close out match" eyebrow="Final score" onClose={onClose}>
       <div className="rounded-xl bg-secondary/50 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{match.court} · {formatTime(match.startsAt)}</p>
+        <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{match.court} · {formatTime(match.startsAt, matchZone(match))}</p>
         <p className="mt-1 font-serif text-2xl font-bold">{match.opponent}</p>
       </div>
       <label className="mt-5 block"><span className="field-label">Result</span><input data-testid="input-result" autoFocus placeholder="e.g. Won 3–1" value={result} onChange={(event) => setResult(event.target.value)} className="field" /></label>
@@ -422,15 +422,13 @@ function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; on
 
 function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClose: () => void; onSave: (observations: string[], transcript: string | null, audio: Blob | null) => Promise<void>; saving: boolean }) {
   const report = match.report;
-  const [observations, setObservations] = useState<string[]>(Array.from({ length: 3 }, (_, index) => report?.observations?.[index] ?? ''));
+  const [observations, setObservations] = useState<string[]>(report?.observations?.slice(0, 3) ?? ['', '', '']);
   const [transcript, setTranscript] = useState(report?.transcript ?? '');
   const [recording, setRecording] = useState(false);
   const [finalizingRecording, setFinalizingRecording] = useState(false);
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
   const [uploading, setUploading] = useState(false);
   const [recordingError, setRecordingError] = useState('');
-  const [saveError, setSaveError] = useState('');
-  const hasContent = observations.some((item) => item.trim()) || !!transcript.trim() || !!recordedAudio?.size || !!report?.audioPath;
   const recorderRef = useRef<MediaRecorder | null>(null);
   const speechRef = useRef<{ stop: () => void } | null>(null);
   const updateObservation = (index: number, value: string) => setObservations((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
@@ -494,24 +492,19 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
     setRecording(false);
   };
   const submitReport = async () => {
-    if (!hasContent || saving || uploading || recording || finalizingRecording) return;
-    setSaveError('');
     setUploading(true);
     try {
-      await onSave(observations.map((item) => item.trim()).filter(Boolean), transcript.trim() || null, recordedAudio);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Coach report could not be saved. Please try again.');
+      await onSave(observations.map((item) => item.trim()), transcript.trim() || null, recordedAudio);
     } finally {
       setUploading(false);
     }
   };
   return (
-    <Modal title="Coach report" eyebrow={`${match.opponent} · match feedback`} onClose={() => { if (recording) stopRecording(); onClose(); }} closeDisabled={saving || uploading || finalizingRecording}>
-      <p className="mb-4 text-sm text-muted-foreground">Add one comment or a voice note to save. Extra comments and a transcript are optional.</p>
+    <Modal title="Coach report" eyebrow={`${match.opponent} · three takeaways`} onClose={() => { if (recording) stopRecording(); onClose(); }}>
       <div className="space-y-3">
         {observations.map((observation, index) => (
           <label key={index} className="block">
-            <span className="field-label flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary font-mono text-[10px] text-primary">{index + 1}</span> {index === 0 ? 'Comment' : 'Additional comment (optional)'}</span>
+            <span className="field-label flex items-center gap-2"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary font-mono text-[10px] text-primary">{index + 1}</span> Observation</span>
             <textarea data-testid={`input-observation-${index + 1}`} maxLength={220} rows={2} value={observation} onChange={(event) => updateObservation(index, event.target.value)} placeholder={['What worked under pressure?', 'A movement or technical cue', 'Focus for the next match'][index]} className="field min-h-[72px] resize-none" />
           </label>
         ))}
@@ -519,7 +512,7 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
       <div className="mt-5 rounded-xl border border-border bg-muted/40 p-3">
         <div className="flex items-center justify-between gap-3">
           <div><p className="text-xs font-bold">Voice note</p><p className="mt-0.5 text-[11px] text-muted-foreground">Use your mic, or type the transcript below.</p></div>
-          <button data-testid="button-toggle-recording" disabled={saving || uploading || finalizingRecording} onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors disabled:opacity-50', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
+          <button data-testid="button-toggle-recording" onClick={recording ? stopRecording : startRecording} className={cx('flex h-9 w-9 items-center justify-center rounded-full transition-colors', recording ? 'bg-accent text-primary' : 'bg-primary text-primary-foreground')} aria-label={recording ? 'Stop recording' : 'Start recording'}>{recording ? <MicOff size={16} /> : <Mic size={16} />}</button>
         </div>
         {recording && <p data-testid="status-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Recording in progress</p>}
         {finalizingRecording && <p data-testid="status-finalizing-recording" className="mt-3 font-mono text-[10px] uppercase tracking-[.15em] text-accent">Preparing voice note…</p>}
@@ -528,9 +521,7 @@ function ReportEditor({ match, onClose, onSave, saving }: { match: Match; onClos
         {recordingError && <p data-testid="error-recording" role="alert" className="mt-3 text-xs font-medium text-destructive">{recordingError}</p>}
         <textarea data-testid="input-transcript" rows={2} value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Type a short voice-note transcript…" className="field mt-3 min-h-[64px] resize-none bg-card" />
       </div>
-      {saveError && <p data-testid="error-save-report" role="alert" className="mt-3 text-sm text-destructive">{saveError}</p>}
-      {!hasContent && <p className="mt-3 text-xs text-muted-foreground">Enter a comment, type a transcript, or record a voice note to enable Save.</p>}
-      <button data-testid="button-save-report" disabled={saving || uploading || recording || finalizingRecording || !hasContent} onClick={() => { void submitReport(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving || uploading ? 'Saving report…' : finalizingRecording ? 'Preparing voice note…' : 'Save report'}</button>
+      <button data-testid="button-save-report" disabled={saving || uploading || recording || finalizingRecording || observations.some((item) => !item.trim())} onClick={() => { void submitReport(); }} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"><Save size={16} /> {saving || uploading ? 'Saving report…' : finalizingRecording ? 'Preparing voice note…' : 'Save three observations'}</button>
     </Modal>
   );
 }
@@ -912,7 +903,7 @@ function TrackerPage({ role }: { role: TrackerRole }) {
       </main>
       {canManage && editing && <MatchEditor match={editing} coaches={state.coaches} onClose={() => setEditing(null)} onSave={(data) => saveMatch(editing, data)} saving={updateMatch.isPending} />}
       {canManage && completing && <CompletionEditor match={completing} onClose={() => setCompleting(null)} onSave={(result) => completeMatch(completing, result)} saving={updateMatch.isPending} />}
-      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio)} saving={saveReport.isPending} />}
+      {reporting && <ReportEditor match={reporting} onClose={() => setReporting(null)} onSave={(observations, transcript, audio) => saveCoachReport(reporting, observations, transcript, audio).catch((error) => { setToast(error instanceof Error ? error.message : 'Coach report could not be saved'); })} saving={saveReport.isPending} />}
       {canManage && settingsOpen && <SettingsEditor state={state} onSetupSaved={() => { void queryClient.invalidateQueries({ queryKey: getGetTrackerQueryKey() }); }} onClose={() => setSettingsOpen(false)} saving={saveSettings.isPending} rotatingPlayerId={rotatingPlayerId} onRotateShareLink={(player) => { setRotatingPlayerId(player.id); rotateShareToken.mutate({ playerId: player.id }, { onSuccess: (updated) => { queryClient.setQueryData<TrackerState>(getGetTrackerQueryKey(), (current) => current ? { ...current, players: current.players.map((item) => item.id === updated.id ? updated : item) } : current); showSuccess(`${player.name}'s old link has been disabled`); }, onError: () => setToast('Player link could not be reset'), onSettled: () => setRotatingPlayerId(null) }); }} onSave={async (data) => { try { const next = await saveSettings.mutateAsync({ data }); queryClient.setQueryData(getGetTrackerQueryKey(), next); showSuccess('Settings saved'); } catch { setToast('Settings could not be saved'); throw new Error('Settings could not be saved'); } }} />}
       {toast && <div data-testid="status-toast" role="status" className="fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-primary px-4 py-3 text-xs font-bold text-primary-foreground shadow-xl"><Check size={15} className="text-secondary" />{toast}</div>}
     </div>
@@ -1018,10 +1009,10 @@ function PlayerView() {
             <div className="relative">
               <div className="flex items-center justify-between">
                 <p className="font-mono text-[10px] uppercase tracking-[.2em] text-secondary">Next match</p>
-                <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt)}</span>
+                <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt, matchZone(nextMatch))}</span>
               </div>
-              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt)} <span className="text-base">ET</span></p>
-              <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt)}</p>
+              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt, matchZone(nextMatch))} <span className="text-base">{zoneLabel(nextMatch.startsAt, matchZone(nextMatch))}</span></p>
+              <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt, matchZone(nextMatch))}</p>
               <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-primary-foreground/15 py-5">
                 <div>
                   <p className="font-mono text-[9px] uppercase tracking-[.15em] text-primary-foreground/50">Court</p>
@@ -1063,7 +1054,7 @@ function PlayerView() {
               {upcoming.slice(1).map((match) => (
                 <article key={match.id} className="rounded-2xl border border-card-border bg-card p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
-                    <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {formatTime(match.startsAt)}</p><p className="mt-1 font-serif text-xl font-bold">{match.opponent}</p></div>
+                    <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt, matchZone(match))} · {formatTime(match.startsAt, matchZone(match))}</p><p className="mt-1 font-serif text-xl font-bold">{match.opponent}</p></div>
                     <span className="rounded-lg bg-secondary px-2.5 py-1.5 text-xs font-bold text-secondary-foreground">{match.court}</span>
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">{match.venue} · {isSystemCoach(match.coachId) ? coachLabel(state.coaches.find((coach) => coach.id === match.coachId), match) : `Coach ${coachLabel(state.coaches.find((coach) => coach.id === match.coachId), match)}`}</p>
@@ -1085,7 +1076,7 @@ function PlayerView() {
                 return (
                   <article data-testid={`player-history-${match.id}`} key={match.id} className="rounded-2xl border border-card-border bg-card p-4 shadow-sm sm:p-5">
                     <div className="flex items-start justify-between gap-4">
-                      <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt)} · {match.court}</p><h3 className="mt-1 font-serif text-xl font-bold">{match.opponent}</h3><p className="mt-1 text-xs text-muted-foreground">{isSystemCoach(match.coachId) ? coachLabel(coach, match) : `Coach ${coachLabel(coach, match)}`}</p></div>
+                      <div><p className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">{formatDay(match.startsAt, matchZone(match))} · {match.court}</p><h3 className="mt-1 font-serif text-xl font-bold">{match.opponent}</h3><p className="mt-1 text-xs text-muted-foreground">{isSystemCoach(match.coachId) ? coachLabel(coach, match) : `Coach ${coachLabel(coach, match)}`}</p></div>
                       <span className="rounded-lg bg-muted px-3 py-2 font-mono text-xs font-bold">{match.result ?? 'Completed'}</span>
                     </div>
                     {match.report && (
