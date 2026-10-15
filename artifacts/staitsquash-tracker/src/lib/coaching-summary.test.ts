@@ -29,6 +29,23 @@ describe('summarizeCoaching', () => {
     expect(events[1].byPlayer).toEqual([]);
     expect(events[1].unassigned).toBe(1);
   });
+  it('lists every coached match under its coach, in time order, for pay', () => {
+    const [event] = summarizeCoaching([
+      match('a', { opponent: 'Kai', startsAt: '2026-10-10T17:00:00Z' }),
+      match('b', { opponent: 'Lee', startsAt: '2026-10-10T15:00:00Z', coachMode: 'virtual' }),
+      match('c', { opponent: 'Sam', coachId: 'c2', status: 'upcoming' }),
+      match('d', { coachId: 'not-coaching' }),
+    ], players, coaches);
+    expect(event.sheets.map((sheet) => [sheet.name, sheet.coached, sheet.virtual])).toEqual([['Alex', 2, 1], ['Sam', 1, 0]]);
+    expect(event.sheets[0].matches.map((line) => line.opponent)).toEqual(['Lee', 'Kai']);
+    expect(event.sheets[0].matches[0]).toMatchObject({ player: 'Connor Powell', virtual: true, played: true });
+    expect(event.sheets[1].matches[0].played).toBe(false);
+    const text = summaryText([event]);
+    expect(text).toContain('Who coached which match, for pay');
+    expect(text).toContain('Alex: 2 matches, 1 virtual');
+    expect(text).toContain('Connor Powell vs Lee (virtual)');
+    expect(text).toContain('Connor Powell vs Sam (in person, not played yet)');
+  });
   it('writes plain text in the shape Alex asked for', () => {
     const text = summaryText(summarizeCoaching([match('a', {}), match('b', { coachMode: 'virtual' })], players, coaches));
     expect(text).toContain('Connor Powell: coached 2 times, 1 virtually');

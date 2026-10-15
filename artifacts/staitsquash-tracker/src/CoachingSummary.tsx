@@ -1,4 +1,4 @@
-import { summarizeCoaching, summaryText, describeTally, type Tally } from './lib/coaching-summary';
+import { summarizeCoaching, summaryText, describeTally, describeLine, type Tally, type CoachSheet } from './lib/coaching-summary';
 import type { Coach, Match, Player } from '@workspace/api-client-react';
 
 function TallyList({ title, rows }: { title: string; rows: Tally[] }) {
@@ -18,6 +18,19 @@ function TallyList({ title, rows }: { title: string; rows: Tally[] }) {
   );
 }
 
+function PaySheet({ sheet }: { sheet: CoachSheet }) {
+  return (
+    <div data-testid={`pay-${sheet.name}`} className="rounded-xl border border-border p-3">
+      <p className="text-sm font-bold">{sheet.name} <span className="font-normal text-muted-foreground">{sheet.coached} {sheet.coached === 1 ? 'match' : 'matches'}{sheet.virtual ? `, ${sheet.virtual} virtual` : ''}</span></p>
+      <ul className="mt-2 space-y-1">
+        {sheet.matches.map((line, index) => (
+          <li key={index} className="text-xs text-muted-foreground">{describeLine(line)}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function CoachingSummary({ matches, players, coaches, onCopy }: { matches: Match[]; players: Player[]; coaches: Coach[]; onCopy: (text: string) => void }) {
   const events = summarizeCoaching(matches, players, coaches);
   if (!events.length) return <p data-testid="summary-empty" className="rounded-2xl border border-card-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">No coaching to report yet.</p>;
@@ -31,6 +44,10 @@ export function CoachingSummary({ matches, players, coaches, onCopy }: { matches
           <h3 className="font-serif text-lg font-bold">{event.venue}</h3>
           <TallyList title="By coach" rows={event.byCoach} />
           <TallyList title="By player" rows={event.byPlayer} />
+          <div>
+            <p className="mb-1 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Who coached which match, for pay</p>
+            <div className="space-y-2">{event.sheets.map((sheet) => <PaySheet key={sheet.name} sheet={sheet} />)}</div>
+          </div>
           {event.unassigned > 0 && <p className="text-xs font-bold text-accent">{event.unassigned} {event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision yet.</p>}
         </section>
       ))}
