@@ -97,6 +97,7 @@ test("keeps only roster singles matches that have a start time", () => {
       playerId: "111",
       playerName: "Sam Rivera",
       opponent: "Theo Okafor",
+      opponentId: "222",
       startsAt: "2026-09-26T11:30:00-04:00",
       endsAt: "2026-09-26T16:15:00.000Z",
       timeZone: "America/New_York",

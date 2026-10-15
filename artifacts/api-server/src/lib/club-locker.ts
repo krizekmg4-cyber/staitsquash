@@ -13,6 +13,8 @@ type TrackerMatch = {
     coachMode?: "in-person" | "virtual";
     // IANA zone of the tournament; times are shown in it, not the viewer's.
     timeZone?: string;
+    // The opponent's US Squash number, so notes about them follow the person, not the spelling.
+    opponentId?: string;
     // Both sides of this match are followed players (StaitSquash vs StaitSquash).
     teammates?: boolean;
     // Set when Club Locker changes the time or court of an upcoming match.
@@ -207,6 +209,7 @@ export type ClubLockerMatch = {
   startsAt: string;
   endsAt: string;
   timeZone?: string;
+  opponentId?: string;
   venue: string;
   court: string;
   status?: "upcoming" | "completed";
@@ -301,6 +304,7 @@ export function parseClubLockerFeed(value: unknown): ReadonlyClubLockerFeed {
       startsAt,
       endsAt,
       timeZone: typeof match.timeZone === "string" && match.timeZone.trim() ? match.timeZone.trim() : undefined,
+      opponentId: typeof match.opponentId === "string" && /^\d{1,12}$/.test(match.opponentId.trim()) ? match.opponentId.trim() : undefined,
       venue: readRequiredString(match.venue, "venue", index),
       court: readRequiredString(match.court, "court", index),
       status:
@@ -473,6 +477,7 @@ export function mergeClubLockerFeed(
         venue: incoming.venue,
         court: incoming.court,
         ...(incoming.timeZone ? { timeZone: incoming.timeZone } : {}),
+        ...(incoming.opponentId ? { opponentId: incoming.opponentId } : {}),
         ...(adoptResult
           ? { status: "completed" as const, result: incoming.result ?? null }
           : {}),
@@ -504,6 +509,7 @@ export function mergeClubLockerFeed(
       venue: incoming.venue,
       court: incoming.court,
       ...(incoming.timeZone ? { timeZone: incoming.timeZone } : {}),
+      ...(incoming.opponentId ? { opponentId: incoming.opponentId } : {}),
       coachId,
       ...(realCoach && tournamentDefault?.coachMode === "virtual"
         ? { coachMode: "virtual" as const }

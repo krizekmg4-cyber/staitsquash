@@ -51,6 +51,7 @@ import {
   type WeeklySetup,
 } from "../lib/weekly-setup.js";
 import { SCHEDULER_TOKEN } from "../lib/scheduler-token.js";
+import { recordLedger } from "../lib/archive.js";
 import { ObjectStorageService } from "../lib/object-storage.js";
 import { requireStaff, requireTrackerAccess } from "../middlewares/requireStaff.js";
 
@@ -261,6 +262,7 @@ async function saveState(state: TrackerState): Promise<void> {
     .update(trackerStateTable)
     .set({ data: state, updatedAt: new Date() })
     .where(eq(trackerStateTable.id, "main"));
+  void recordLedger(state);
 }
 
 type StateMutationOperation<T> = (
@@ -272,7 +274,8 @@ async function mutateStateInTransaction<T>(
   operation: StateMutationOperation<T>,
 ): Promise<T> {
   const { db, trackerStateTable } = await import("@workspace/db");
-  return db.transaction(async (transaction) => {
+  let committed = null as TrackerState | null;
+  const result = await db.transaction(async (transaction) => {
     await transaction
       .insert(trackerStateTable)
       .values({ id: "main", data: INITIAL_STATE })
@@ -294,9 +297,13 @@ async function mutateStateInTransaction<T>(
           .set({ data: next, updatedAt: new Date() })
           .where(eq(trackerStateTable.id, "main"));
         current = freezeTrackerState(cloneTrackerState(next));
+        committed = next;
       },
     );
   });
+  // After the board is saved, copy played matches into the permanent record (never blocks or fails the save).
+  if (committed) void recordLedger(committed);
+  return result;
 }
 
 async function fetchClubLockerFeed(
@@ -801,6 +808,8 @@ export function createTrackerRouter(
       const state = cloneTrackerState(await loadLockedState());
       if (!state.players.some((item) => item.id === playerId)) return null;
       const matchCount = state.matches.filter((match) => match.playerId === playerId).length;
+      // The kid's played matches go into the permanent record before they leave the board.
+      await recordLedger(cloneTrackerState(state), req.log);
       state.players = state.players.filter((item) => item.id !== playerId);
       state.matches = state.matches.filter((match) => match.playerId !== playerId);
       state.lastUpdatedAt = new Date().toISOString();

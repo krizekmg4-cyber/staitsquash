@@ -434,6 +434,9 @@ components:
         timeZone:
           type: string
           description: IANA time zone of the tournament; the app shows this match's times in it.
+        opponentId:
+          type: string
+          description: The opponent's US Squash number, when the draw gives one.
         venue: { type: string }
         court: { type: string }
         coachId: { type: string }

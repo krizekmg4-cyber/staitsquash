@@ -144,6 +144,8 @@ export interface Match {
   endsAt: string;
   /** IANA time zone of the tournament; the app shows this match's times in it. */
   timeZone?: string;
+  /** The opponent's US Squash number, when the draw gives one. */
+  opponentId?: string;
   venue: string;
   court: string;
   coachId: string;

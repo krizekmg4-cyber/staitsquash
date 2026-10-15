@@ -234,6 +234,7 @@ export function drawsToFeed(
           court,
           status: completed ? "completed" : "upcoming",
           result: completed ? resultFor(match, side) : null,
+          ...(otherId ? { opponentId: otherId } : {}),
           ...(otherId && rosterIds.has(otherId) ? { teammates: true } : {}),
         });
       }
