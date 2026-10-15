@@ -37,7 +37,7 @@ export default function HelpPage() {
               'Open the link on your phone.',
               <>You see the next match: the time, the court, the opponent, and <strong>who is coaching</strong>. A coach marked <strong>Virtual</strong> watches by video call.</>,
               'After the match you see the result, and any voice note or advice from the coach.',
-              'The page updates by itself. Times are shown in the time zone of the tournament, with a label such as EDT or CDT.',
+              'The page updates by itself. All times are shown in Eastern Time, wherever the tournament is, so a 5 am start on the West Coast reads as 8 am.',
             ]} />
             <p>Keep the link to yourself. Anyone who has it can see your player's schedule. If it gets shared by accident, ask Alex for a new one.</p>
             <p>Lost the link? Ask Alex to send it again.</p>
