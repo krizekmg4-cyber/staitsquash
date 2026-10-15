@@ -42,7 +42,7 @@ import AdminAccessSection from './AdminAccessSection';
 import HelpPage from './HelpPage';
 import { CoachingSummary } from './CoachingSummary';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
-import { formatDay, formatTime, formatInputDate, parseZonedInput, matchZone, zoneLabel, MATCH_TIME_ZONE } from './lib/match-time';
+import { formatDay, formatTime, formatInputDate, parseZonedInput, matchZone, zoneLabel, viewerTimeNote, MATCH_TIME_ZONE } from './lib/match-time';
 import { cacheBoard, clearCachedBoard, copyText, downloadJson, eventIsActive, problemDetails, readCachedBoard, relativeAgo, useNow } from './lib/resilience';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -252,7 +252,7 @@ function NextMatchBoard({ matches, players, coaches, onAssign, savingMatchId, fi
             return (
               <div key={player.id} data-testid={`row-next-${player.id}`} className={cx('grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 border-b border-border px-4 py-3 last:border-b-0 md:items-center', columns)}>
                 <p className="min-w-0 truncate text-base font-bold md:text-sm">{player.name}</p>
-                <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt, matchZone(next!))}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt, matchZone(next!))} {zoneLabel(next!.startsAt, matchZone(next!))}</span></p>
+                <p className="text-right text-sm md:text-left"><span className="font-mono text-base font-bold md:text-sm">{formatTime(next!.startsAt, matchZone(next!))}</span> <span className="text-xs text-muted-foreground">{formatDay(next!.startsAt, matchZone(next!))} {zoneLabel(next!.startsAt, matchZone(next!))}</span>{viewerTimeNote(next!.startsAt, matchZone(next!)) && <span className="block text-xs font-bold text-accent">{viewerTimeNote(next!.startsAt, matchZone(next!))}</span>}</p>
                 <p className="col-span-2 truncate text-sm md:hidden"><span className="font-semibold">{next!.court}</span> <span className="text-muted-foreground">· vs {next!.opponent}</span></p>
                 <p className="hidden text-sm font-semibold md:block">{next!.court}</p>
                 <p className="hidden truncate text-xs text-muted-foreground md:block">{next!.venue}</p>
@@ -317,7 +317,7 @@ function MatchCard({ match, player, coach, onEdit, onComplete, onReport, canMana
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
             <div className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold', isComplete ? 'bg-muted text-muted-foreground' : 'bg-secondary text-primary')}>
-              {formatTime(match.startsAt)}
+              {formatTime(match.startsAt, matchZone(match))}
             </div>
             <div className="min-w-0">
               <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{formatDay(match.startsAt, matchZone(match))} {zoneLabel(match.startsAt, matchZone(match))}</p>
@@ -411,7 +411,7 @@ function CompletionEditor({ match, onClose, onSave, saving }: { match: Match; on
   return (
     <Modal title="Close out match" eyebrow="Final score" onClose={onClose}>
       <div className="rounded-xl bg-secondary/50 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{match.court} · {formatTime(match.startsAt, matchZone(match))}</p>
+        <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">{match.court} · {formatTime(match.startsAt, matchZone(match))} {zoneLabel(match.startsAt, matchZone(match))}{viewerTimeNote(match.startsAt, matchZone(match)) && <span data-testid="viewer-time" className="ml-1 normal-case text-accent">({viewerTimeNote(match.startsAt, matchZone(match))})</span>}</p>
         <p className="mt-1 font-serif text-2xl font-bold">{match.opponent}</p>
       </div>
       <label className="mt-5 block"><span className="field-label">Result</span><input data-testid="input-result" autoFocus placeholder="e.g. Won 3–1" value={result} onChange={(event) => setResult(event.target.value)} className="field" /></label>
@@ -1011,7 +1011,7 @@ function PlayerView() {
                 <p className="font-mono text-[10px] uppercase tracking-[.2em] text-secondary">Next match</p>
                 <span className="rounded-full bg-primary-foreground/10 px-3 py-1 font-mono text-[10px]">{formatDay(nextMatch.startsAt, matchZone(nextMatch))}</span>
               </div>
-              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt, matchZone(nextMatch))} <span className="text-base">{zoneLabel(nextMatch.startsAt, matchZone(nextMatch))}</span></p>
+              <p className="mt-5 font-serif text-4xl font-bold">{formatTime(nextMatch.startsAt, matchZone(nextMatch))} <span className="text-base">{zoneLabel(nextMatch.startsAt, matchZone(nextMatch))}</span>{viewerTimeNote(nextMatch.startsAt, matchZone(nextMatch)) && <span className="mt-1 block text-sm font-bold text-primary-foreground/80">{viewerTimeNote(nextMatch.startsAt, matchZone(nextMatch))}</span>}</p>
               <p className="mt-1 text-sm text-primary-foreground/65">until {formatTime(nextMatch.endsAt, matchZone(nextMatch))}</p>
               <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-y border-primary-foreground/15 py-5">
                 <div>

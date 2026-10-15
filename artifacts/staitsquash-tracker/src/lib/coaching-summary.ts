@@ -1,5 +1,5 @@
 import type { Coach, Match, Player } from '@workspace/api-client-react';
-import { formatDay, formatTime } from './match-time';
+import { formatDay, formatTime, matchZone, zoneLabel } from './match-time';
 
 const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
 
@@ -37,7 +37,7 @@ export function summarizeCoaching(matches: Match[], players: Player[], coaches: 
     const sheet = event.sheets.get(match.coachId) ?? { name: coachName.get(match.coachId) ?? 'Unknown coach', rows: [] };
     sheet.rows.push({
       at: Date.parse(match.startsAt),
-      when: `${formatDay(match.startsAt)} ${formatTime(match.startsAt)}`,
+      when: `${formatDay(match.startsAt, matchZone(match))} ${formatTime(match.startsAt, matchZone(match))} ${zoneLabel(match.startsAt, matchZone(match))}`,
       player: playerName.get(match.playerId) ?? 'Unknown player',
       opponent: match.opponent,
       virtual: match.coachMode === 'virtual',

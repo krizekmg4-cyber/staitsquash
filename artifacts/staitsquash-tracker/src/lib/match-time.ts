@@ -1,5 +1,5 @@
 /** Used when a match has no time zone of its own (cards saved before tournaments carried one). */
-export const MATCH_TIME_ZONE = 'America/Los_Angeles';
+export const MATCH_TIME_ZONE = 'America/New_York';
 
 /** Each match is shown in its tournament's zone, never the viewer's. */
 export const matchZone = (match: { timeZone?: string | null }) => match.timeZone || MATCH_TIME_ZONE;
@@ -13,6 +13,19 @@ export const formatTime = (value: string, timeZone: string = MATCH_TIME_ZONE) =>
   new Intl.DateTimeFormat('en-GB', {
     timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
+
+/**
+ * For someone watching from another time zone (a coach coaching virtually, a parent at home): the
+ * same moment on their own clock, e.g. "11:00 EDT for you". Empty when it reads the same.
+ */
+export function viewerTimeNote(value: string, timeZone: string = MATCH_TIME_ZONE, viewerZone?: string) {
+  const viewer = viewerZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!viewer || viewer === timeZone) return '';
+  const mine = formatTime(value, viewer);
+  if (mine === formatTime(value, timeZone) && formatDay(value, viewer) === formatDay(value, timeZone)) return '';
+  const day = formatDay(value, viewer) !== formatDay(value, timeZone) ? ` ${formatDay(value, viewer)}` : '';
+  return `${mine} ${zoneLabel(value, viewer)}${day} for you`;
+}
 
 /** "PDT", "EDT", "CST"... for the zone the time is shown in. */
 export const zoneLabel = (value: string, timeZone: string = MATCH_TIME_ZONE) =>

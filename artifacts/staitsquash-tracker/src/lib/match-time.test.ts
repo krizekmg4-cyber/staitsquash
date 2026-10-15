@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDay, formatInputDate, formatTime, matchZone, parsePacificInput, parseZonedInput, zoneLabel } from './match-time';
+import { viewerTimeNote, formatDay, formatInputDate, formatTime, matchZone, parsePacificInput, parseZonedInput, zoneLabel } from './match-time';
 
 describe('Pacific match times', () => {
   it('shows Saturday 8 am Pacific for an 11 am Eastern match', () => {
@@ -39,13 +39,24 @@ describe('per-tournament zones', () => {
     expect(zoneLabel(start, 'America/Los_Angeles')).toBe('PDT');
     expect(zoneLabel('2026-01-10T12:00:00Z', 'America/Chicago')).toBe('CST');
   });
-  it('falls back to Pacific for cards saved before matches carried a zone', () => {
-    expect(matchZone({})).toBe('America/Los_Angeles');
+  it('falls back to Eastern for cards saved before matches carried a zone', () => {
+    expect(matchZone({})).toBe('America/New_York');
     expect(matchZone({ timeZone: 'America/New_York' })).toBe('America/New_York');
   });
   it('reads edited times in the match zone and keeps unchanged ones', () => {
     expect(parseZonedInput('2026-10-10T08:00', start, 'America/New_York')).toBe(start);
     expect(parseZonedInput('2026-10-10T09:30', start, 'America/New_York')).toBe('2026-10-10T13:30:00.000Z');
     expect(parseZonedInput('2026-01-10T09:30', '2026-01-10T12:00:00Z', 'America/Chicago')).toBe('2026-01-10T15:30:00.000Z');
+  });
+});
+
+describe('viewerTimeNote', () => {
+  const start = '2026-10-10T15:00:00Z';
+  it('shows the viewer their own clock when it differs from the tournament', () => {
+    expect(viewerTimeNote(start, 'America/Los_Angeles', 'America/New_York')).toBe('11:00 EDT for you');
+    expect(viewerTimeNote(start, 'America/Chicago', 'America/New_York')).toBe('11:00 EDT for you');
+  });
+  it('is empty in the same zone', () => {
+    expect(viewerTimeNote(start, 'America/New_York', 'America/New_York')).toBe('');
   });
 });
