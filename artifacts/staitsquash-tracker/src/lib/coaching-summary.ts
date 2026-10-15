@@ -5,7 +5,8 @@ const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
 const DAY = 86_400_000;
 
 export type Tally = { name: string; coached: number; virtual: number };
-export type MatchLine = { when: string; startsAt: string; player: string; opponent: string; virtual: boolean };
+export type MatchLine = { when: string; startsAt: string; venue: string; player: string; opponent: string; virtual: boolean };
+export type VenueSummary = { venue: string; total: number; byCoach: Tally[]; byPlayer: Tally[] };
 export type CoachSheet = { name: string; coached: number; virtual: number; matches: MatchLine[] };
 export type TournamentInfo = { id: string; name: string; endsOn: string | null };
 export type EventSummary = {
@@ -23,6 +24,10 @@ export type EventSummary = {
   /** First and last match of the tournament, ISO. */
   firstAt: string;
   lastAt: string;
+  /** Each venue of a tournament played at more than one place, with its own totals. */
+  venues: VenueSummary[];
+  /** Played matches nobody decided a coach for, so someone can fix them. */
+  unassignedLines: MatchLine[];
   /** Played matches nobody decided a coach for. */
   unassigned: number;
   /** Matches that never got played (withdrawn, defaulted). Not counted. */
@@ -75,7 +80,7 @@ export function summarizeCoaching(
       key,
       title: tournament?.name ?? group[0].venue,
       first,
-      byPlayer: [] as Tally[], byCoach: [] as Tally[], sheets: [] as CoachSheet[], unassigned: 0, notPlayed: 0, total: 0,
+      byPlayer: [] as Tally[], byCoach: [] as Tally[], sheets: [] as CoachSheet[], venues: [] as VenueSummary[], unassignedLines: [] as MatchLine[], unassigned: 0, notPlayed: 0, total: 0,
       firstAt: new Date(first).toISOString(), lastAt: new Date(last).toISOString(),
     };
     if (!finished) {
@@ -86,11 +91,20 @@ export function summarizeCoaching(
     const byPlayer = new Map<string, Tally>();
     const byCoach = new Map<string, Tally>();
     const sheets = new Map<string, { name: string; rows: Array<MatchLine & { at: number }> }>();
-    let unassigned = 0;
+    const unassignedLines: MatchLine[] = [];
+    const venueMaps = new Map<string, { byCoach: Map<string, Tally>; byPlayer: Map<string, Tally> }>();
     let notPlayed = 0;
     for (const match of group) {
       if (match.status !== 'completed') { notPlayed += 1; continue; }
-      if (match.coachId === 'unassigned') { unassigned += 1; continue; }
+      const lineFor = (virtual: boolean): MatchLine => ({
+        when: `${formatDay(match.startsAt, EASTERN)} ${formatTime(match.startsAt, EASTERN)} ${zoneLabel(match.startsAt, EASTERN)}`,
+        startsAt: new Date(match.startsAt).toISOString(),
+        venue: match.venue,
+        player: playerName.get(match.playerId) ?? 'Unknown player',
+        opponent: match.opponent,
+        virtual,
+      });
+      if (match.coachId === 'unassigned') { unassignedLines.push(lineFor(false)); continue; }
       if (SYSTEM_COACH_IDS.includes(match.coachId)) continue;
       const virtual = match.coachMode === 'virtual';
       const add = (map: Map<string, Tally>, id: string, name: string) => {
@@ -101,11 +115,22 @@ export function summarizeCoaching(
       };
       add(byPlayer, match.playerId, playerName.get(match.playerId) ?? 'Unknown player');
       add(byCoach, match.coachId, coachName.get(match.coachId) ?? 'Unknown coach');
+      const venueMap = venueMaps.get(match.venue) ?? { byCoach: new Map<string, Tally>(), byPlayer: new Map<string, Tally>() };
+      venueMaps.set(match.venue, venueMap);
+      const addVenue = (map: Map<string, Tally>, id: string, name: string) => {
+        const tally = map.get(id) ?? blank(name);
+        tally.coached += 1;
+        if (virtual) tally.virtual += 1;
+        map.set(id, tally);
+      };
+      addVenue(venueMap.byPlayer, match.playerId, playerName.get(match.playerId) ?? 'Unknown player');
+      addVenue(venueMap.byCoach, match.coachId, coachName.get(match.coachId) ?? 'Unknown coach');
       const sheet = sheets.get(match.coachId) ?? { name: coachName.get(match.coachId) ?? 'Unknown coach', rows: [] };
       sheet.rows.push({
         at: Date.parse(match.startsAt),
         when: `${formatDay(match.startsAt, EASTERN)} ${formatTime(match.startsAt, EASTERN)} ${zoneLabel(match.startsAt, EASTERN)}`,
         startsAt: new Date(match.startsAt).toISOString(),
+        venue: match.venue,
         player: playerName.get(match.playerId) ?? 'Unknown player',
         opponent: match.opponent,
         virtual,
@@ -125,7 +150,14 @@ export function summarizeCoaching(
           return { name: sheet.name, coached: lines.length, virtual: lines.filter((line) => line.virtual).length, matches: lines };
         })
         .sort((a, b) => b.coached - a.coached || a.name.localeCompare(b.name)),
-      unassigned,
+      venues: venueMaps.size > 1
+        ? [...venueMaps.entries()].map(([venue, maps]) => {
+            const byCoachRows = [...maps.byCoach.values()].sort(order);
+            return { venue, total: byCoachRows.reduce((sum, tally) => sum + tally.coached, 0), byCoach: byCoachRows, byPlayer: [...maps.byPlayer.values()].sort(order) };
+          }).sort((a, b) => a.venue.localeCompare(b.venue))
+        : [],
+      unassignedLines: unassignedLines.sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+      unassigned: unassignedLines.length,
       notPlayed,
       total: [...byCoach.values()].reduce((sum, tally) => sum + tally.coached, 0),
     });
@@ -144,8 +176,8 @@ export function describeTally(tally: Tally): string {
   return `${tally.name}: ${parts.join(', ')}`;
 }
 
-export function describeLine(line: MatchLine): string {
-  return `${line.when}  ${line.player} vs ${line.opponent || 'opponent TBD'} (${line.virtual ? 'virtual' : 'in person'})`;
+export function describeLine(line: MatchLine, showVenue = false): string {
+  return `${line.when}  ${line.player} vs ${line.opponent || 'opponent TBD'} (${line.virtual ? 'virtual' : 'in person'})${showVenue ? `, ${line.venue}` : ''}`;
 }
 
 export const stillGoingText = (event: EventSummary) =>
@@ -163,9 +195,10 @@ export function summaryText(events: EventSummary[]): string {
     'Matches coached, by coach',
     ...event.sheets.flatMap((sheet) => [
       `  ${sheet.name}: ${sheet.coached} ${sheet.coached === 1 ? 'match' : 'matches'}${sheet.virtual ? `, ${sheet.virtual} virtual` : ''}`,
-      ...sheet.matches.map((line) => `    ${describeLine(line)}`),
+      ...sheet.matches.map((line) => `    ${describeLine(line, event.venues.length > 1)}`),
     ]),
-    ...(event.unassigned ? [`  ${event.unassigned} played ${event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision`] : []),
+    ...(event.venues.length ? ['', 'By venue', ...event.venues.flatMap((venue) => [`  ${venue.venue}: ${venue.total} ${venue.total === 1 ? 'match' : 'matches'}`, ...venue.byCoach.map((tally) => `    ${describeTally(tally)}`)])] : []),
+    ...(event.unassigned ? ['', `  ${event.unassigned} played ${event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision:`, ...event.unassignedLines.map((line) => `    ${describeLine(line, true)}`)] : []),
     ...(event.notPlayed ? [`  ${event.notPlayed} ${event.notPlayed === 1 ? 'match was' : 'matches were'} not played and not counted`] : []),
   ].join('\n')).join('\n\n');
 }
@@ -229,12 +262,13 @@ export type ArchiveRow = {
   coachId: string; coachName: string; coachMode: string | null;
 };
 
-export type ReportLine = { tournament: string; startsAt: string; day: string; player: string; opponent: string; coach: string; virtual: boolean };
+export type ReportLine = { tournament: string; venue: string; startsAt: string; day: string; player: string; opponent: string; coach: string; virtual: boolean };
 
 /** Every counted match of the finished tournaments, flattened for ranges, totals and the spreadsheet. */
 export function reportLines(events: EventSummary[]): ReportLine[] {
   return events.filter((event) => event.finished).flatMap((event) => event.sheets.flatMap((sheet) => sheet.matches.map((line) => ({
     tournament: event.title,
+    venue: line.venue,
     startsAt: line.startsAt,
     day: formatInputDate(line.startsAt, EASTERN).slice(0, 10),
     player: line.player,
@@ -263,9 +297,9 @@ const csvCell = (value: string) => (/[",\n]/.test(value) ? `"${value.replace(/"/
 
 /** One row per match, for Karen's spreadsheet or accounting software. Times are Eastern. */
 export function reportCsv(lines: ReportLine[]): string {
-  const header = ['Tournament', 'Date', 'Time (ET)', 'Player', 'Opponent', 'Coach', 'Coaching'];
+  const header = ['Tournament', 'Venue', 'Date', 'Time (ET)', 'Player', 'Opponent', 'Coach', 'Coaching'];
   const rows = lines.map((line) => [
-    line.tournament, line.day, formatTime(line.startsAt, EASTERN), line.player, line.opponent, line.coach, line.virtual ? 'virtual' : 'in person',
+    line.tournament, line.venue, line.day, formatTime(line.startsAt, EASTERN), line.player, line.opponent, line.coach, line.virtual ? 'virtual' : 'in person',
   ]);
   return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n') + '\n';
 }

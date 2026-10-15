@@ -99,8 +99,36 @@ describe('permanent record and reports', () => {
     expect(linesInRange(lines, '', '').length).toBe(3);
     expect(totalsBy(linesInRange(lines, '2026-10-03', '2026-10-04'), 'coach')).toEqual([{ name: 'Jamie', coached: 2, virtual: 1 }]);
     const csv = reportCsv(lines);
-    expect(csv.split('\n')[0]).toBe('Tournament,Date,Time (ET),Player,Opponent,Coach,Coaching');
-    expect(csv).toContain('Penn Junior Silver,2026-10-04,10:00,Removed Kid,Pat,Jamie,virtual');
+    expect(csv.split('\n')[0]).toBe('Tournament,Venue,Date,Time (ET),Player,Opponent,Coach,Coaching');
+    expect(csv).toContain('Penn Junior Silver,Penn,2026-10-04,10:00,Removed Kid,Pat,Jamie,virtual');
     expect(reportCsv([{ ...lines[0], opponent: 'Smith, "Kai"' }])).toContain('"Smith, ""Kai"""');
+  });
+});
+
+describe('a tournament played at two venues', () => {
+  const two = [
+    match('a', { venue: 'Bay Club Redwood Shores', startsAt: '2026-10-10T15:00:00Z' }),
+    match('b', { venue: 'Bay Club Santa Clara', startsAt: '2026-10-10T17:00:00Z', coachMode: 'virtual' }),
+    match('c', { venue: 'Bay Club Santa Clara', startsAt: '2026-10-11T17:00:00Z', coachId: 'c2' }),
+    match('d', { venue: 'Bay Club Santa Clara', coachId: 'unassigned', opponent: 'Pat' }),
+  ];
+  const [event] = summarizeCoaching(two, players, coaches, [{ id: '100', name: 'West Coast JCT #2', endsOn: '2026-10-12' }], new Date('2026-10-13T14:00:00Z'));
+  it('uses the real tournament name once and breaks the totals out by venue', () => {
+    expect(event.title).toBe('West Coast JCT #2');
+    expect(event.total).toBe(3);
+    expect(event.venues.map((venue) => [venue.venue, venue.total])).toEqual([['Bay Club Redwood Shores', 1], ['Bay Club Santa Clara', 2]]);
+    expect(event.venues[1].byCoach).toEqual([{ name: 'Alex', coached: 1, virtual: 1 }, { name: 'Sam', coached: 1, virtual: 0 }]);
+  });
+  it('lists played matches with no coach decision, with their venue', () => {
+    expect(event.unassigned).toBe(1);
+    expect(event.unassignedLines[0]).toMatchObject({ opponent: 'Pat', venue: 'Bay Club Santa Clara' });
+    const text = summaryText([event]);
+    expect(text).toContain('By venue');
+    expect(text).toContain('1 played match has no coach decision:');
+    expect(text).toContain('Connor Powell vs Pat (in person), Bay Club Santa Clara');
+  });
+  it('a one-venue tournament has no venue breakdown', () => {
+    const [single] = summarizeCoaching([match('a', {})], players, coaches, tournaments, new Date('2026-10-13T14:00:00Z'));
+    expect(single.venues).toEqual([]);
   });
 });

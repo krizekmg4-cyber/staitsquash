@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { CoachingSummary } from './CoachingSummary';
 import type { Coach, Match, Player } from '@workspace/api-client-react';
 
@@ -32,5 +32,23 @@ describe('tournament summary', () => {
     expect(await screen.findByTestId('summary-Junior Gold')).toBeInTheDocument();
     expect(screen.getByTestId('coach-matches-Alex')).toHaveTextContent('2 matches, 1 virtual');
     expect(screen.getByTestId('summary-copy')).toBeInTheDocument();
+  });
+});
+
+describe('summary page order and report', () => {
+  it('keeps the report empty until a date is chosen, then lists past tournaments before the ones still going', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-13T14:00:00Z'));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ tournaments: [{ id: '100', name: 'Junior Gold', endsOn: '2026-10-11' }, { id: '200', name: 'Next Open', endsOn: '2026-10-25' }] })));
+    const upcoming = match('z', { externalId: '200:z:1', status: 'upcoming', startsAt: '2026-10-24T15:00:00Z' });
+    const { container } = render(<CoachingSummary matches={[match('a', {}), upcoming]} players={players} coaches={coaches} onCopy={() => {}} />);
+    await screen.findByTestId('summary-report');
+    expect(screen.getByTestId('report-prompt')).toBeInTheDocument();
+    expect(screen.queryByTestId('report-count')).toBeNull();
+    expect(screen.queryByTestId('report-csv')).toBeNull();
+    const text = container.textContent ?? '';
+    expect(text.indexOf('Report for any dates')).toBeLessThan(text.indexOf('Junior Gold'));
+    expect(text.indexOf('Junior Gold')).toBeLessThan(text.indexOf('Next Open'));
+    fireEvent.change(screen.getByTestId('report-from'), { target: { value: '2026-10-01' } });
+    expect(screen.getByTestId('report-count')).toHaveTextContent('1 match coached');
   });
 });

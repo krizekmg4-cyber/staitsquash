@@ -23,13 +23,13 @@ function TallyList({ title, rows }: { title: string; rows: Tally[] }) {
   );
 }
 
-function CoachMatches({ sheet }: { sheet: CoachSheet }) {
+function CoachMatches({ sheet, showVenue }: { sheet: CoachSheet; showVenue: boolean }) {
   return (
     <div data-testid={`coach-matches-${sheet.name}`} className="rounded-xl border border-border p-3">
       <p className="text-sm font-bold">{sheet.name} <span className="font-normal text-muted-foreground">{sheet.coached} {sheet.coached === 1 ? 'match' : 'matches'}{sheet.virtual ? `, ${sheet.virtual} virtual` : ''}</span></p>
       <ul className="mt-2 space-y-1">
         {sheet.matches.map((line, index) => (
-          <li key={index} className="text-xs text-muted-foreground">{describeLine(line)}</li>
+          <li key={index} className="text-xs text-muted-foreground">{describeLine(line, showVenue)}</li>
         ))}
       </ul>
     </div>
@@ -82,17 +82,19 @@ const dateRange = (event: EventSummary) => {
 function Report({ lines, onCopy }: { lines: ReportLine[]; onCopy: (text: string) => void }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const inRange = useMemo(() => linesInRange(lines, from, to), [lines, from, to]);
+  const picked = !!(from || to);
+  const inRange = useMemo(() => (picked ? linesInRange(lines, from, to) : []), [lines, from, to, picked]);
   return (
     <section data-testid="summary-report" className="space-y-3 rounded-2xl border border-card-border bg-card p-4 shadow-sm">
       <h3 className="font-serif text-lg font-bold">Report for any dates</h3>
-      <p className="text-xs text-muted-foreground">Pick dates to total up every finished tournament in between, for billing or accounting. Leave both empty for everything.</p>
+      <p className="text-xs text-muted-foreground">Pick a start date, an end date, or both, to total up every finished tournament match in between, for billing or accounting.</p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs font-bold">From<input data-testid="report-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="field mt-1 block" /></label>
         <label className="text-xs font-bold">To<input data-testid="report-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} className="field mt-1 block" /></label>
       </div>
-      <p data-testid="report-count" className="text-sm font-bold">{inRange.length} {inRange.length === 1 ? 'match' : 'matches'} coached</p>
-      {inRange.length > 0 && (
+      {!picked && <p data-testid="report-prompt" className="text-sm text-muted-foreground">Choose dates to see the totals.</p>}
+      {picked && <p data-testid="report-count" className="text-sm font-bold">{inRange.length} {inRange.length === 1 ? 'match' : 'matches'} coached</p>}
+      {picked && inRange.length > 0 && (
         <>
           <TallyList title="By coach" rows={totalsBy(inRange, 'coach')} />
           <TallyList title="By player" rows={totalsBy(inRange, 'player')} />
@@ -120,11 +122,6 @@ export function CoachingSummary({ matches, players, coaches, onCopy }: { matches
   const lines = reportLines(events);
   return (
     <div data-testid="coaching-summary" className="space-y-4">
-      {going.map((event) => (
-        <section key={event.key} data-testid={`summary-going-${event.title}`} className="rounded-2xl border border-dashed border-border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-          {stillGoingText(event)}
-        </section>
-      ))}
       {finished.length > 0 && <Report lines={lines} onCopy={onCopy} />}
       {finished.length > 0 && (
         <div className="flex items-center justify-between">
@@ -146,14 +143,46 @@ export function CoachingSummary({ matches, players, coaches, onCopy }: { matches
             <TallyList title="By player" rows={event.byPlayer} />
             <div>
               <p className="mb-1 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Matches coached, by coach</p>
-              <div className="space-y-2">{event.sheets.map((sheet) => <CoachMatches key={sheet.name} sheet={sheet} />)}</div>
+              <div className="space-y-2">{event.sheets.map((sheet) => <CoachMatches key={sheet.name} sheet={sheet} showVenue={event.venues.length > 1} />)}</div>
             </div>
-            {event.unassigned > 0 && <p className="text-xs font-bold text-accent">{event.unassigned} played {event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision.</p>}
+            {event.venues.length > 0 && (
+              <div data-testid={`venues-${event.key}`} className="space-y-3">
+                <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">By venue</p>
+                {event.venues.map((venue) => (
+                  <div key={venue.venue} data-testid={`venue-${venue.venue}`} className="rounded-xl border border-border p-3">
+                    <p className="text-sm font-bold">{venue.venue} <span className="font-normal text-muted-foreground">{venue.total} {venue.total === 1 ? 'match' : 'matches'}</span></p>
+                    <ul className="mt-2 divide-y divide-border">
+                      {venue.byCoach.map((tally) => (
+                        <li key={tally.name} className="flex justify-between gap-3 py-1 text-xs"><span className="font-semibold">{tally.name}</span><span className="text-muted-foreground">{describeTally(tally).slice(tally.name.length + 2)}</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+            {event.unassigned > 0 && (
+              <div data-testid={`unassigned-${event.key}`} className="rounded-xl border border-accent/40 p-3">
+                <p className="text-xs font-bold text-accent">{event.unassigned} played {event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision, so {event.unassigned === 1 ? 'it is' : 'they are'} not counted above. Set a coach on {event.unassigned === 1 ? 'it' : 'them'} on the board to include {event.unassigned === 1 ? 'it' : 'them'}.</p>
+                <ul className="mt-2 space-y-1">
+                  {event.unassignedLines.map((line, index) => <li key={index} className="text-xs text-muted-foreground">{describeLine(line, true)}</li>)}
+                </ul>
+              </div>
+            )}
             {event.notPlayed > 0 && <p className="text-xs text-muted-foreground">{event.notPlayed} {event.notPlayed === 1 ? 'match was' : 'matches were'} not played and {event.notPlayed === 1 ? 'is' : 'are'} not counted.</p>}
             <button data-testid={`csv-${event.key}`} onClick={() => download(`${slug(event.title)}.csv`, reportCsv(reportLines([event])))} className="rounded-lg border border-border px-3 py-2 text-xs font-bold text-primary">Download this tournament (spreadsheet)</button>
           </div>
         </details>
       ))}
+      {going.length > 0 && (
+        <div className="space-y-2">
+          <p className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Still going</p>
+          {going.map((event) => (
+            <section key={event.key} data-testid={`summary-going-${event.title}`} className="rounded-2xl border border-dashed border-border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+              {stillGoingText(event)}
+            </section>
+          ))}
+        </div>
+      )}
       {sources.archiveError && <p className="text-xs text-muted-foreground">The permanent record could not be loaded, so this shows what is on the board right now.</p>}
     </div>
   );

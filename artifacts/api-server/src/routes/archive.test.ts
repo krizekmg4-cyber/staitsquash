@@ -130,3 +130,19 @@ test("the permanent record keeps played matches with a coach, names copied in, a
   assert.equal(rows[1].matchKey, "local:m5");
   assert.equal(rows[1].tournamentName, "Home");
 });
+
+test("a tournament's real name and last day come from Club Locker's public record, and a failure is quiet", async () => {
+  const { clubLockerTournamentLookup } = await import("../lib/archive.js");
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/tournaments/19445")) return Response.json({ Tournament_Name: " West Coast-JCT #2 presented by Harrow Sports ", End_Date: "2026-10-12T00:00:00" });
+      return new Response("nope", { status: 404 });
+    }) as typeof fetch;
+    assert.deepEqual(await clubLockerTournamentLookup("19445"), { name: "West Coast-JCT #2 presented by Harrow Sports", endsOn: "2026-10-12" });
+    assert.equal(await clubLockerTournamentLookup("99999"), null);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
