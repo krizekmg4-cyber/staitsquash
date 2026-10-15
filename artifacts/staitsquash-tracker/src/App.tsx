@@ -40,6 +40,7 @@ import { WeeklySetupSection } from './WeeklySetupSection';
 import CoachAccessSection from './CoachAccessSection';
 import AdminAccessSection from './AdminAccessSection';
 import HelpPage from './HelpPage';
+import PlayerJournal from './PlayerJournal';
 import { CoachingSummary } from './CoachingSummary';
 import { useTrackerAccess, type TrackerRole } from './lib/tracker-access';
 import { formatDay, formatTime, formatInputDate, parseZonedInput, matchZone, zoneLabel, viewerTimeNote, venueTimeNote, EASTERN, MATCH_TIME_ZONE } from './lib/match-time';
@@ -1111,6 +1112,7 @@ function PlayerView() {
             <div className="rounded-2xl border border-dashed border-border bg-card/60 p-6 text-center text-sm text-muted-foreground">Completed matches and coach advice will appear here.</div>
           )}
         </section>
+        <PlayerJournal shareToken={shareToken} matches={matches} />
         <footer className="mt-10 border-t border-border pt-4 text-center font-mono text-[9px] uppercase tracking-[.16em] text-muted-foreground">Your schedule updates automatically · {state.branding.name}</footer>
         <p className="mt-3 text-center text-xs"><a data-testid="link-help-player" href={`${basePath}/help#players`} className="font-bold underline">How this page works, and how to put it on your phone</a></p>
       </main>

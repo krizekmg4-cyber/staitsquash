@@ -9,5 +9,7 @@ describe('help page', () => {
     for (const id of ['players', 'coaches', 'admin', 'phone']) expect(screen.getByTestId(`help-${id}`)).toBeInTheDocument();
     expect(screen.getByText(/Add to Home Screen/, { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getAllByText(/Eastern Time/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Only you can read your journal/)).toBeInTheDocument();
+    expect(screen.getByText('Past tournaments', { selector: 'em' })).toBeInTheDocument();
   });
 });

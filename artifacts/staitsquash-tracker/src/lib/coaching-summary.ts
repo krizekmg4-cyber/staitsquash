@@ -1,11 +1,11 @@
 import type { Coach, Match, Player } from '@workspace/api-client-react';
-import { formatDay, formatTime, zoneLabel, EASTERN } from './match-time';
+import { formatDay, formatInputDate, formatTime, zoneLabel, EASTERN } from './match-time';
 
 const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
 const DAY = 86_400_000;
 
 export type Tally = { name: string; coached: number; virtual: number };
-export type MatchLine = { when: string; player: string; opponent: string; virtual: boolean };
+export type MatchLine = { when: string; startsAt: string; player: string; opponent: string; virtual: boolean };
 export type CoachSheet = { name: string; coached: number; virtual: number; matches: MatchLine[] };
 export type TournamentInfo = { id: string; name: string; endsOn: string | null };
 export type EventSummary = {
@@ -18,6 +18,11 @@ export type EventSummary = {
   byPlayer: Tally[];
   byCoach: Tally[];
   sheets: CoachSheet[];
+  /** Played matches with a coach, all coaches together. */
+  total: number;
+  /** First and last match of the tournament, ISO. */
+  firstAt: string;
+  lastAt: string;
   /** Played matches nobody decided a coach for. */
   unassigned: number;
   /** Matches that never got played (withdrawn, defaulted). Not counted. */
@@ -70,7 +75,8 @@ export function summarizeCoaching(
       key,
       title: tournament?.name ?? group[0].venue,
       first,
-      byPlayer: [] as Tally[], byCoach: [] as Tally[], sheets: [] as CoachSheet[], unassigned: 0, notPlayed: 0,
+      byPlayer: [] as Tally[], byCoach: [] as Tally[], sheets: [] as CoachSheet[], unassigned: 0, notPlayed: 0, total: 0,
+      firstAt: new Date(first).toISOString(), lastAt: new Date(last).toISOString(),
     };
     if (!finished) {
       events.push({ ...base, finished: false, opensOn: opensAt !== null ? formatDay(new Date(opensAt).toISOString(), 'UTC') : null });
@@ -99,6 +105,7 @@ export function summarizeCoaching(
       sheet.rows.push({
         at: Date.parse(match.startsAt),
         when: `${formatDay(match.startsAt, EASTERN)} ${formatTime(match.startsAt, EASTERN)} ${zoneLabel(match.startsAt, EASTERN)}`,
+        startsAt: new Date(match.startsAt).toISOString(),
         player: playerName.get(match.playerId) ?? 'Unknown player',
         opponent: match.opponent,
         virtual,
@@ -120,6 +127,7 @@ export function summarizeCoaching(
         .sort((a, b) => b.coached - a.coached || a.name.localeCompare(b.name)),
       unassigned,
       notPlayed,
+      total: [...byCoach.values()].reduce((sum, tally) => sum + tally.coached, 0),
     });
   }
   // Finished tournaments first, newest on top; ones still going after them.
@@ -160,4 +168,110 @@ export function summaryText(events: EventSummary[]): string {
     ...(event.unassigned ? [`  ${event.unassigned} played ${event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision`] : []),
     ...(event.notPlayed ? [`  ${event.notPlayed} ${event.notPlayed === 1 ? 'match was' : 'matches were'} not played and not counted`] : []),
   ].join('\n')).join('\n\n');
+}
+
+
+/**
+ * Put the permanent record together with the live board: matches the board still has come first, and
+ * played matches only the record remembers (a removed kid, an old tournament) are added behind them, with
+ * their names and tournament, so a summary never loses history.
+ */
+export function withArchive(
+  matches: Match[],
+  players: Player[],
+  coaches: Coach[],
+  tournaments: TournamentInfo[],
+  rows: ArchiveRow[],
+): { matches: Match[]; players: Player[]; coaches: Coach[]; tournaments: TournamentInfo[] } {
+  const liveKeys = new Set(matches.map((match) => match.externalId ?? `local:${match.id}`));
+  const playerIds = new Set(players.map((player) => player.id));
+  const coachIds = new Set(coaches.map((coach) => coach.id));
+  const tournamentIds = new Set(tournaments.map((tournament) => tournament.id));
+  const extraMatches: Match[] = [];
+  const extraPlayers: Player[] = [];
+  const extraCoaches: Coach[] = [];
+  const extraTournaments: TournamentInfo[] = [];
+  for (const row of rows) {
+    if (!playerIds.has(row.playerId)) { playerIds.add(row.playerId); extraPlayers.push({ id: row.playerId, name: row.playerName } as Player); }
+    if (!coachIds.has(row.coachId)) { coachIds.add(row.coachId); extraCoaches.push({ id: row.coachId, name: row.coachName } as Coach); }
+    if (row.tournamentId && !tournamentIds.has(row.tournamentId)) {
+      tournamentIds.add(row.tournamentId);
+      extraTournaments.push({ id: row.tournamentId, name: row.tournamentName, endsOn: row.tournamentEndsOn });
+    }
+    if (liveKeys.has(row.matchKey)) continue;
+    extraMatches.push({
+      id: row.matchKey,
+      externalId: row.matchKey.startsWith('local:') ? null : row.matchKey,
+      playerId: row.playerId,
+      opponent: row.opponentName,
+      startsAt: row.startsAt,
+      endsAt: row.startsAt,
+      venue: row.venue,
+      court: '',
+      coachId: row.coachId,
+      status: 'completed',
+      ...(row.timeZone ? { timeZone: row.timeZone } : {}),
+      ...(row.coachMode === 'virtual' ? { coachMode: 'virtual' as const } : {}),
+    } as Match);
+  }
+  return {
+    matches: [...matches, ...extraMatches],
+    players: [...players, ...extraPlayers],
+    coaches: [...coaches, ...extraCoaches],
+    tournaments: [...tournaments, ...extraTournaments],
+  };
+}
+
+/** A row of the permanent coaching record, as the server sends it. */
+export type ArchiveRow = {
+  matchKey: string; tournamentId: string | null; tournamentName: string; tournamentEndsOn: string | null; venue: string;
+  timeZone: string | null; startsAt: string; playerId: string; playerName: string; opponentName: string; opponentId: string | null;
+  coachId: string; coachName: string; coachMode: string | null;
+};
+
+export type ReportLine = { tournament: string; startsAt: string; day: string; player: string; opponent: string; coach: string; virtual: boolean };
+
+/** Every counted match of the finished tournaments, flattened for ranges, totals and the spreadsheet. */
+export function reportLines(events: EventSummary[]): ReportLine[] {
+  return events.filter((event) => event.finished).flatMap((event) => event.sheets.flatMap((sheet) => sheet.matches.map((line) => ({
+    tournament: event.title,
+    startsAt: line.startsAt,
+    day: formatInputDate(line.startsAt, EASTERN).slice(0, 10),
+    player: line.player,
+    opponent: line.opponent,
+    coach: sheet.name,
+    virtual: line.virtual,
+  })))).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+}
+
+/** Keep the lines whose match day falls in the range (inclusive). Empty bounds are open. */
+export const linesInRange = (lines: ReportLine[], from: string, to: string) =>
+  lines.filter((line) => (!from || line.day >= from) && (!to || line.day <= to));
+
+export function totalsBy(lines: ReportLine[], key: 'coach' | 'player'): Tally[] {
+  const map = new Map<string, Tally>();
+  for (const line of lines) {
+    const tally = map.get(line[key]) ?? blank(line[key]);
+    tally.coached += 1;
+    if (line.virtual) tally.virtual += 1;
+    map.set(line[key], tally);
+  }
+  return [...map.values()].sort((a, b) => b.coached - a.coached || a.name.localeCompare(b.name));
+}
+
+const csvCell = (value: string) => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+
+/** One row per match, for Karen's spreadsheet or accounting software. Times are Eastern. */
+export function reportCsv(lines: ReportLine[]): string {
+  const header = ['Tournament', 'Date', 'Time (ET)', 'Player', 'Opponent', 'Coach', 'Coaching'];
+  const rows = lines.map((line) => [
+    line.tournament, line.day, formatTime(line.startsAt, EASTERN), line.player, line.opponent, line.coach, line.virtual ? 'virtual' : 'in person',
+  ]);
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n') + '\n';
+}
+
+export function reportText(lines: ReportLine[], from: string, to: string): string {
+  const range = from || to ? `${from || 'start'} to ${to || 'today'}` : 'all tournaments';
+  const part = (title: string, rows: Tally[]) => [title, ...rows.map((tally) => `  ${describeTally(tally)}`)];
+  return [`Coaching report, ${range}: ${lines.length} ${lines.length === 1 ? 'match' : 'matches'}`, ...part('By coach', totalsBy(lines, 'coach')), ...part('By player', totalsBy(lines, 'player'))].join('\n');
 }

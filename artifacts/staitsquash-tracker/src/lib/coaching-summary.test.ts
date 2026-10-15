@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Coach, Match, Player } from '@workspace/api-client-react';
-import { summarizeCoaching, summaryText, stillGoingText } from './coaching-summary';
+import { summarizeCoaching, summaryText, stillGoingText, withArchive, reportLines, linesInRange, totalsBy, reportCsv, type ArchiveRow } from './coaching-summary';
 
 const players = [{ id: 'p1', name: 'Connor Powell' }, { id: 'p2', name: 'Narelle' }] as Player[];
 const coaches = [{ id: 'c1', name: 'Alex' }, { id: 'c2', name: 'Sam' }, { id: 'unassigned', name: 'Unassigned' }, { id: 'not-coaching', name: 'Not coaching' }] as Coach[];
@@ -65,5 +65,42 @@ describe('summarizeCoaching: only when the tournament is over', () => {
     expect(summarizeCoaching([match('a', { status: 'upcoming' })], players, coaches, [], new Date('2026-10-10T16:00:00Z'))[0].finished).toBe(false);
     expect(summarizeCoaching([match('a', {})], players, coaches, [], new Date('2026-10-10T16:00:00Z'))[0].finished).toBe(true);
     expect(summarizeCoaching([match('a', { status: 'upcoming' })], players, coaches, [], new Date('2026-10-12T16:00:00Z'))[0].finished).toBe(true);
+  });
+});
+
+const row = (key: string, extra: Partial<ArchiveRow> = {}): ArchiveRow => ({
+  matchKey: key, tournamentId: '300', tournamentName: 'Penn Junior Silver', tournamentEndsOn: '2026-10-04', venue: 'Penn',
+  timeZone: 'America/New_York', startsAt: '2026-10-03T14:00:00Z', playerId: 'gone', playerName: 'Removed Kid', opponentName: 'Pat',
+  opponentId: null, coachId: 'c9', coachName: 'Jamie', coachMode: null, ...extra,
+});
+
+describe('permanent record and reports', () => {
+  it('brings back history for a kid and coach no longer on the board, without doubling matches still there', () => {
+    const live = [match('a', {})];
+    const merged = withArchive(live, players, coaches, tournaments, [
+      row('300:1:gone'), row('300:2:gone', { startsAt: '2026-10-04T14:00:00Z', coachMode: 'virtual' }),
+      row('100:a:1', { tournamentId: '100', playerId: 'p1', playerName: 'Connor Powell', coachId: 'c1', coachName: 'Alex' }),
+    ]);
+    expect(merged.matches).toHaveLength(3);
+    expect(merged.tournaments.map((t) => t.name)).toContain('Penn Junior Silver');
+    const events = summarizeCoaching(merged.matches, merged.players, merged.coaches, merged.tournaments, new Date('2026-12-01T00:00:00Z'));
+    const penn = events.find((event) => event.title === 'Penn Junior Silver')!;
+    expect(penn.finished).toBe(true);
+    expect(penn.byPlayer).toEqual([{ name: 'Removed Kid', coached: 2, virtual: 1 }]);
+    expect(penn.byCoach).toEqual([{ name: 'Jamie', coached: 2, virtual: 1 }]);
+    expect(penn.total).toBe(2);
+  });
+  it('totals a date range across tournaments and writes a spreadsheet with one row per match', () => {
+    const merged = withArchive([match('a', {})], players, coaches, tournaments, [row('300:1:gone'), row('300:2:gone', { startsAt: '2026-10-04T14:00:00Z', coachMode: 'virtual' })]);
+    const events = summarizeCoaching(merged.matches, merged.players, merged.coaches, merged.tournaments, new Date('2026-12-01T00:00:00Z'));
+    const lines = reportLines(events);
+    expect(lines).toHaveLength(3);
+    expect(linesInRange(lines, '2026-10-04', '2026-10-04').map((line) => line.player)).toEqual(['Removed Kid']);
+    expect(linesInRange(lines, '', '').length).toBe(3);
+    expect(totalsBy(linesInRange(lines, '2026-10-03', '2026-10-04'), 'coach')).toEqual([{ name: 'Jamie', coached: 2, virtual: 1 }]);
+    const csv = reportCsv(lines);
+    expect(csv.split('\n')[0]).toBe('Tournament,Date,Time (ET),Player,Opponent,Coach,Coaching');
+    expect(csv).toContain('Penn Junior Silver,2026-10-04,10:00,Removed Kid,Pat,Jamie,virtual');
+    expect(reportCsv([{ ...lines[0], opponent: 'Smith, "Kai"' }])).toContain('"Smith, ""Kai"""');
   });
 });
