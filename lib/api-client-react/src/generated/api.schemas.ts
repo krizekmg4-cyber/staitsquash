@@ -142,8 +142,6 @@ export interface Match {
   opponent: string;
   startsAt: string;
   endsAt: string;
-  /** IANA time zone of the tournament; the app shows this match's times in it. */
-  timeZone?: string;
   venue: string;
   court: string;
   coachId: string;

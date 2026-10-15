@@ -229,7 +229,6 @@ export function drawsToFeed(
           opponent: other ? displayName(other) : "To be decided",
           startsAt,
           endsAt: startsAt,
-          timeZone: tournament.timeZone ?? timeZone,
           venue,
           court,
           status: completed ? "completed" : "upcoming",

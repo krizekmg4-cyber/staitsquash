@@ -99,7 +99,6 @@ test("keeps only roster singles matches that have a start time", () => {
       opponent: "Theo Okafor",
       startsAt: "2026-09-26T11:30:00-04:00",
       endsAt: "2026-09-26T16:15:00.000Z",
-      timeZone: "America/New_York",
       venue: "Brunswick School",
       court: "Court 4",
       status: "upcoming",

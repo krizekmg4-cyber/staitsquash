@@ -115,19 +115,6 @@ test("adds new external match IDs with stable IDs and safe defaults", () => {
   });
 });
 
-test("carries the tournament time zone onto new and existing matches", () => {
-  const first = mergeClubLockerFeed(stateWith(), {
-    matches: [{ ...incoming("tz/1"), timeZone: "America/New_York" }],
-  });
-  assert.equal(first.matches[0].timeZone, "America/New_York");
-  const second = mergeClubLockerFeed(first, {
-    matches: [{ ...incoming("tz/1"), timeZone: "America/Los_Angeles" }],
-  });
-  assert.equal(second.matches[0].timeZone, "America/Los_Angeles");
-  const without = mergeClubLockerFeed(second, { matches: [incoming("tz/1")] });
-  assert.equal(without.matches[0].timeZone, "America/Los_Angeles");
-});
-
 test("updates schedule fields while preserving coach work and match history", () => {
   const report = {
     matchId: "stored-existing",
