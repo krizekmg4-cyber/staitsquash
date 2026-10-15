@@ -135,7 +135,7 @@ test("a tournament's real name and last day come from Club Locker's public recor
   const { clubLockerTournamentLookup } = await import("../lib/archive.js");
   const original = globalThis.fetch;
   try {
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/tournaments/19445")) return Response.json({ Tournament_Name: " West Coast-JCT #2 presented by Harrow Sports ", End_Date: "2026-10-12T00:00:00" });
       return new Response("nope", { status: 404 });
