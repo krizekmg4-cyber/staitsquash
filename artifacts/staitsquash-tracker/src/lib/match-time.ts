@@ -1,5 +1,6 @@
 /** Used when a match has no time zone of its own (cards saved before tournaments carried one). */
-export const MATCH_TIME_ZONE = 'America/New_York';
+export const EASTERN = 'America/New_York';
+export const MATCH_TIME_ZONE = EASTERN;
 
 /** Each match is shown in its tournament's zone, never the viewer's. */
 export const matchZone = (match: { timeZone?: string | null }) => match.timeZone || MATCH_TIME_ZONE;
@@ -13,6 +14,17 @@ export const formatTime = (value: string, timeZone: string = MATCH_TIME_ZONE) =>
   new Intl.DateTimeFormat('en-GB', {
     timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
+
+/**
+ * Staff see Eastern as the main time. For a match played in another zone, the venue's own clock as a
+ * small second line, e.g. "Venue 07:00 PDT", so it can be checked against the draw. Empty in Eastern.
+ */
+export function venueTimeNote(value: string, timeZone: string = MATCH_TIME_ZONE) {
+  if (timeZone === EASTERN) return '';
+  const day = formatDay(value, timeZone) !== formatDay(value, EASTERN) ? ` ${formatDay(value, timeZone)}` : '';
+  if (formatTime(value, timeZone) === formatTime(value, EASTERN) && !day) return '';
+  return `Venue ${formatTime(value, timeZone)} ${zoneLabel(value, timeZone)}${day}`;
+}
 
 /**
  * For someone watching from another time zone (a coach coaching virtually, a parent at home): the
@@ -57,6 +69,3 @@ export function parseZonedInput(value: string, original: string, timeZone: strin
   }
   return candidates[0];
 }
-
-/** Kept for the callers and tests written when every match was Pacific. */
-export const parsePacificInput = (value: string, original: string) => parseZonedInput(value, original, MATCH_TIME_ZONE);

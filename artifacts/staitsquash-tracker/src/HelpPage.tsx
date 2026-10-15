@@ -37,7 +37,7 @@ export default function HelpPage() {
               'Open the link on your phone.',
               <>You see the next match: the time, the court, the opponent, and <strong>who is coaching</strong>. A coach marked <strong>Virtual</strong> watches by video call.</>,
               'After the match you see the result, and any voice note or advice from the coach.',
-              'The page updates by itself. All times are shown in Eastern Time, wherever the tournament is, so a 5 am start on the West Coast reads as 8 am.',
+              <>The page updates by itself. Times are the time at the venue, the same as the U.S. Squash draw, with the zone next to it (for example CDT). If your phone is on a different clock, a small line shows the time for you.</>,
             ]} />
             <p>Keep the link to yourself. Anyone who has it can see your player's schedule. If it gets shared by accident, ask Alex for a new one.</p>
             <p>Lost the link? Ask Alex to send it again.</p>
@@ -48,6 +48,7 @@ export default function HelpPage() {
               <>Open the app link Alex sent you and choose <strong>Sign up</strong>. Use the Google account you want to keep using, and finish the email check.</>,
               'Tell Alex which email you used. He approves it from his Settings screen. You cannot see the matches until he does.',
               <>Once approved, open the link again and sign in. You see every match for the week. Tap <strong>My matches</strong> to see only yours.</>,
+              <>Everything on the board is in <strong>Eastern Time</strong>. For a match at a venue in another zone, a small line under it shows the venue's own time, for example <em>Venue 10:40 CDT</em>, so you can check it against the draw.</>,
               'After a match is complete you can save a short written report or a voice note for the player.',
             ]} />
             <p>Coaches cannot change the schedule, the results, or the settings. That is on purpose, so nothing moves by accident.</p>
@@ -61,7 +62,8 @@ export default function HelpPage() {
               <><strong>Add a coach.</strong> Ask the coach to open the app link and sign up. Then enter their email under <em>Coach access</em> and press Approve. Remove them with the X at any time.</>,
               <><strong>Add another admin.</strong> Same steps, under <em>Admins</em>. An admin can do everything you can, so add only people you trust. You cannot remove yourself.</>,
               <><strong>Send a player their link.</strong> Under <em>Kids on the board</em>, copy that player's link and text it to the family.</>,
-              <><strong>After the weekend.</strong> Open the <em>Summary</em> tab to see matches coached and matches coached virtually, by coach and by player. Press <em>Copy as text</em> to paste it into an email for billing and coach pay.</>,
+              <><strong>After the weekend.</strong> Open the <em>Summary</em> tab. For each tournament it shows matches coached and matches coached virtually, by coach and by player, and under each coach every match they coached, with the time, player and opponent. Press <em>Copy as text</em> to paste it into an email.</>,
+              <><strong>If a match time looks wrong.</strong> The app works out a tournament's time zone from the venue's location. Check the time against the Club Locker draw. If it is off, correct the zone for that tournament under <em>This week</em>. Times you type when editing a match are Eastern.</>,
             ]} />
             <p>The board refreshes from Club Locker every few minutes. Use <strong>Refresh draw</strong> for an immediate update. If the board says the data is stale, check your connection, then use <strong>Copy problem details</strong> and send it to Rob.</p>
           </Section>

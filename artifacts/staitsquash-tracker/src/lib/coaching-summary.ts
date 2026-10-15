@@ -1,5 +1,5 @@
 import type { Coach, Match, Player } from '@workspace/api-client-react';
-import { formatDay, formatTime, matchZone, zoneLabel } from './match-time';
+import { formatDay, formatTime, zoneLabel, EASTERN } from './match-time';
 
 const SYSTEM_COACH_IDS = ['unassigned', 'not-coaching'];
 
@@ -37,7 +37,7 @@ export function summarizeCoaching(matches: Match[], players: Player[], coaches: 
     const sheet = event.sheets.get(match.coachId) ?? { name: coachName.get(match.coachId) ?? 'Unknown coach', rows: [] };
     sheet.rows.push({
       at: Date.parse(match.startsAt),
-      when: `${formatDay(match.startsAt, matchZone(match))} ${formatTime(match.startsAt, matchZone(match))} ${zoneLabel(match.startsAt, matchZone(match))}`,
+      when: `${formatDay(match.startsAt, EASTERN)} ${formatTime(match.startsAt, EASTERN)} ${zoneLabel(match.startsAt, EASTERN)}`,
       player: playerName.get(match.playerId) ?? 'Unknown player',
       opponent: match.opponent,
       virtual: match.coachMode === 'virtual',
@@ -86,7 +86,7 @@ export function summaryText(events: EventSummary[]): string {
     'By coach',
     ...event.byCoach.map((tally) => `  ${describeTally(tally)}`),
     '',
-    'Who coached which match, for pay',
+    'Matches coached, by coach',
     ...event.sheets.flatMap((sheet) => [
       `  ${sheet.name}: ${sheet.coached} ${sheet.coached === 1 ? 'match' : 'matches'}${sheet.virtual ? `, ${sheet.virtual} virtual` : ''}`,
       ...sheet.matches.map((line) => `    ${describeLine(line)}`),

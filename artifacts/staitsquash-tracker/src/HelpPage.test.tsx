@@ -8,5 +8,6 @@ describe('help page', () => {
     expect(screen.getByTestId('help-title')).toBeInTheDocument();
     for (const id of ['players', 'coaches', 'admin', 'phone']) expect(screen.getByTestId(`help-${id}`)).toBeInTheDocument();
     expect(screen.getByText(/Add to Home Screen/, { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Eastern Time/).length).toBeGreaterThan(0);
   });
 });

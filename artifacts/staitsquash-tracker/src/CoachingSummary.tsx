@@ -18,9 +18,9 @@ function TallyList({ title, rows }: { title: string; rows: Tally[] }) {
   );
 }
 
-function PaySheet({ sheet }: { sheet: CoachSheet }) {
+function CoachMatches({ sheet }: { sheet: CoachSheet }) {
   return (
-    <div data-testid={`pay-${sheet.name}`} className="rounded-xl border border-border p-3">
+    <div data-testid={`coach-matches-${sheet.name}`} className="rounded-xl border border-border p-3">
       <p className="text-sm font-bold">{sheet.name} <span className="font-normal text-muted-foreground">{sheet.coached} {sheet.coached === 1 ? 'match' : 'matches'}{sheet.virtual ? `, ${sheet.virtual} virtual` : ''}</span></p>
       <ul className="mt-2 space-y-1">
         {sheet.matches.map((line, index) => (
@@ -45,8 +45,8 @@ export function CoachingSummary({ matches, players, coaches, onCopy }: { matches
           <TallyList title="By coach" rows={event.byCoach} />
           <TallyList title="By player" rows={event.byPlayer} />
           <div>
-            <p className="mb-1 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Who coached which match, for pay</p>
-            <div className="space-y-2">{event.sheets.map((sheet) => <PaySheet key={sheet.name} sheet={sheet} />)}</div>
+            <p className="mb-1 font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Matches coached, by coach</p>
+            <div className="space-y-2">{event.sheets.map((sheet) => <CoachMatches key={sheet.name} sheet={sheet} />)}</div>
           </div>
           {event.unassigned > 0 && <p className="text-xs font-bold text-accent">{event.unassigned} {event.unassigned === 1 ? 'match has' : 'matches have'} no coach decision yet.</p>}
         </section>

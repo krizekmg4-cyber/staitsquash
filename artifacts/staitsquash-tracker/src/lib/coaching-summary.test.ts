@@ -29,7 +29,7 @@ describe('summarizeCoaching', () => {
     expect(events[1].byPlayer).toEqual([]);
     expect(events[1].unassigned).toBe(1);
   });
-  it('lists every coached match under its coach, in time order, for pay', () => {
+  it('lists every coached match under its coach, in time order', () => {
     const [event] = summarizeCoaching([
       match('a', { opponent: 'Kai', startsAt: '2026-10-10T17:00:00Z' }),
       match('b', { opponent: 'Lee', startsAt: '2026-10-10T15:00:00Z', coachMode: 'virtual' }),
@@ -41,7 +41,7 @@ describe('summarizeCoaching', () => {
     expect(event.sheets[0].matches[0]).toMatchObject({ player: 'Connor Powell', virtual: true, played: true });
     expect(event.sheets[1].matches[0].played).toBe(false);
     const text = summaryText([event]);
-    expect(text).toContain('Who coached which match, for pay');
+    expect(text).toContain('Matches coached, by coach');
     expect(text).toContain('Alex: 2 matches, 1 virtual');
     expect(text).toContain('Connor Powell vs Lee (virtual)');
     expect(text).toContain('Connor Powell vs Sam (in person, not played yet)');
